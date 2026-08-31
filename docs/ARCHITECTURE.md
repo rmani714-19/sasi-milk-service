@@ -185,8 +185,15 @@ negative (`AdvanceRecoveryCalculator`), weekly settlement math + banker's roundi
 PostgreSQL) cover the `UNIQUE`/`EXCLUDE` constraints: duplicate collection,
 overlapping `ts_value` rows, overlapping settlement periods, duplicate payout.
 
-## 6. Deferred to scaffold phase
+## 6. Build state
 
-Build files (`pom.xml`/Gradle), Spring config classes, entity classes,
-repositories, controllers, React app, Docker/ECS/Terraform, CI. This phase
-fixes the schema and the calculation contracts they depend on.
+**Done (scaffold phase):** Maven (Spring Boot 3.3.5, Java 21) + Lombok;
+`application.yml` (env-driven datasource, `ddl-auto=validate`, Flyway); JWT auth +
+rotating refresh tokens; RBAC; JPA auditing + `AuditRecorder`; RFC-7807 error
+model; `FieldCrypto`; OpenAPI. Working vertical slices: **auth, center, region,
+producer, rate, incentive, collection** (entity → repository → service →
+controller → DTO, with unit + Testcontainers tests).
+
+**Not yet built:** `deduction`, `advance`, `settlement`, `payout`,
+`notification`, `report`, `vehicle` modules (SPI interfaces exist); the React
+PWA; Docker/ECS/Terraform; CI; legacy-data migration.
