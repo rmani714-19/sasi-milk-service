@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: sasi-milk-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/sasi_milk_service}
+    username: ${DB_USERNAME:sasi}
+    password: ${DB_PASSWORD:sasi}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+      hibernate.format_sql: false
+      # map java.time.Instant to timestamptz so ddl-auto=validate matches the schema
+      hibernate.type.preferred_instant_jdbc_type: TIMESTAMP_WITH_TIMEZONE
+  flyway:
+    enabled: true
+    baseline-on-migrate: false
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: always
+    include-binding-errors: always
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+app:
+  security:
+    jwt:
+      issuer: sasi-milk-service
+      access-token-ttl: PT30M
+      refresh-token-ttl: P14D
+      # >= 256-bit secret for HS256. Provided via AWS Secrets Manager in real environments.
+      secret: ${JWT_SECRET:dev-only-insecure-secret-change-me-please-0123456789-abcdefghij}
+  crypto:
+    # 32-byte base64 key for AES-256-GCM producer bank-account encryption.
+    # Provided via AWS Secrets Manager in real environments.
+    field-key: ${FIELD_ENCRYPTION_KEY:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+logging:
+  level:
+    org.flywaydb: info
