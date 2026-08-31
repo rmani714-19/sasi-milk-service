@@ -25,7 +25,7 @@ Requires JDK 21 and a PostgreSQL database.
 ```bash
 createdb sasi_milk_service
 cd backend
-DB_URL=jdbc:postgresql://localhost:5432/sasi_milk_service \
+DB_URL=jdbc:postgresql://localhost:5433/sasi_milk_service \
 DB_USERNAME=youruser DB_PASSWORD=yourpass \
 ./mvnw spring-boot:run          # or: mvn spring-boot:run
 ```

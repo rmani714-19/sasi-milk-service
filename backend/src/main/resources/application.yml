@@ -2,7 +2,7 @@ spring:
   application:
     name: sasi-milk-service
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/sasi_milk_service}
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/sasi_milk_service}
     username: ${DB_USERNAME:sasi}
     password: ${DB_PASSWORD:sasi}
   jpa:
