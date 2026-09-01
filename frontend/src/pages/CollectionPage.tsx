@@ -15,13 +15,17 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import IconButton from '@mui/material/IconButton';
+import PrintIcon from '@mui/icons-material/Print';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { litres as fmtL, money, rate as fmtRate, today, uuid } from '../lib/format';
 import { queueCollection } from '../lib/offline';
+import { PrintableReceipt } from '../components/PrintableReceipt';
 import { useToast } from '../components/ui';
-import type { Collection, Page, Producer, RatePreview } from '../api/types';
+import type { CenterSettings, Collection, Page, Producer, RatePreview } from '../api/types';
 
 type Shift = 'MORNING' | 'EVENING';
 
@@ -40,6 +44,20 @@ export function CollectionPage() {
   const [snf, setSnf] = useState('');
   const [preview, setPreview] = useState<RatePreview | null>(null);
   const [saving, setSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Collection | null>(null);
+  const [receiptFor, setReceiptFor] = useState<Collection | null>(null);
+
+  const center = useQuery({
+    queryKey: ['center'],
+    queryFn: async () => (await api.get<CenterSettings>('/center')).data,
+    staleTime: 5 * 60_000,
+  });
+  const centerName = center.data?.centerName ?? 'SASI MILK SERVICE';
+  const centerAddress = center.data?.address ?? '';
+  const print = (c: Collection) => {
+    setReceiptFor(c);
+    requestAnimationFrame(() => window.print());
+  };
 
   const recent = useQuery({
     queryKey: ['collections', { date }],
@@ -130,6 +148,7 @@ export function CollectionPage() {
       toast.success(
         `${data.collectionNumber} · ${fmtL(data.litres)} · ${money(data.breakdown.netAmount)}`,
       );
+      setLastSaved(data);
       qc.invalidateQueries({ queryKey: ['collections'] });
       resetEntry(false);
     } catch (err) {
@@ -148,6 +167,8 @@ export function CollectionPage() {
   }
 
   return (
+    <>
+    <PrintableReceipt collection={receiptFor} centerName={centerName} centerAddress={centerAddress} />
     <Grid container spacing={3}>
       <Grid size={{ xs: 12, md: 7, lg: 6 }}>
         <Card>
@@ -255,6 +276,40 @@ export function CollectionPage() {
                   Clear
                 </Button>
               </Stack>
+
+              {lastSaved && (
+                <Box
+                  sx={{
+                    bgcolor: 'success.light',
+                    color: 'success.contrastText',
+                    borderRadius: 2,
+                    p: 1.5,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 1,
+                  }}
+                >
+                  <Box>
+                    <Typography variant="body2" fontWeight={700}>
+                      Saved · {lastSaved.collectionNumber}
+                    </Typography>
+                    <Typography variant="caption">
+                      {fmtL(lastSaved.litres)} @ {fmtRate(lastSaved.breakdown.ratePerLitre)} ={' '}
+                      {money(lastSaved.breakdown.netAmount)}
+                    </Typography>
+                  </Box>
+                  <Button
+                    variant="contained"
+                    color="inherit"
+                    startIcon={<PrintIcon />}
+                    onClick={() => print(lastSaved)}
+                    sx={{ color: 'success.dark', bgcolor: 'background.paper' }}
+                  >
+                    Print receipt
+                  </Button>
+                </Box>
+              )}
             </Stack>
           </CardContent>
         </Card>
@@ -269,23 +324,31 @@ export function CollectionPage() {
             <TableHead>
               <TableRow>
                 <TableCell>No.</TableCell>
-                <TableCell>Shift</TableCell>
+                <TableCell>Producer</TableCell>
                 <TableCell align="right">Litres</TableCell>
                 <TableCell align="right">Net</TableCell>
+                <TableCell align="right" />
               </TableRow>
             </TableHead>
             <TableBody>
               {recent.data?.content.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell>{c.collectionNumber}</TableCell>
-                  <TableCell>{c.shift[0]}</TableCell>
+                  <TableCell>{c.producerNumber ?? c.producerName ?? `#${c.producerId}`}</TableCell>
                   <TableCell align="right">{fmtL(c.litres)}</TableCell>
                   <TableCell align="right">{money(c.breakdown.netAmount)}</TableCell>
+                  <TableCell align="right" padding="none">
+                    <Tooltip title="Print receipt">
+                      <IconButton size="small" onClick={() => print(c)}>
+                        <PrintIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </TableCell>
                 </TableRow>
               ))}
               {recent.data && recent.data.content.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} sx={{ color: 'text.secondary', textAlign: 'center', py: 3 }}>
+                  <TableCell colSpan={5} sx={{ color: 'text.secondary', textAlign: 'center', py: 3 }}>
                     No collections recorded for this date.
                   </TableCell>
                 </TableRow>
@@ -295,5 +358,6 @@ export function CollectionPage() {
         </Card>
       </Grid>
     </Grid>
+    </>
   );
 }

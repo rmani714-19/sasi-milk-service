@@ -38,7 +38,7 @@ public class CollectionController {
     @PreAuthorize("hasAuthority('CREATE_COLLECTION')")
     public ResponseEntity<CollectionResponse> create(@Valid @RequestBody CreateCollectionRequest request) {
         RecordResult result = service.record(request.toCommand());
-        CollectionResponse body = CollectionResponse.from(result.collection(), result.duplicate());
+        CollectionResponse body = service.toResponse(result.collection(), result.duplicate());
         return ResponseEntity
                 .status(result.duplicate() ? HttpStatus.OK : HttpStatus.CREATED)
                 .body(body);
@@ -53,19 +53,19 @@ public class CollectionController {
             @RequestParam(required = false) MilkCollection.Status status,
             @PageableDefault(size = 20) Pageable pageable) {
         return PageResponse.of(service.search(producerId, date, shift, status, pageable),
-                c -> CollectionResponse.from(c, false));
+                c -> service.toResponse(c, false));
     }
 
     @GetMapping("/{publicId}")
     @PreAuthorize("hasAnyAuthority('VIEW_COLLECTION','VIEW_COLLECTIONS')")
     public CollectionResponse get(@PathVariable UUID publicId) {
-        return CollectionResponse.from(service.requireByPublicId(publicId), false);
+        return service.toResponse(service.requireByPublicId(publicId), false);
     }
 
     @PostMapping("/{publicId}/void")
     @PreAuthorize("hasAnyAuthority('MANAGE_PRODUCERS','VIEW_COLLECTIONS')")
     public CollectionResponse voidCollection(@PathVariable UUID publicId,
                                              @Valid @RequestBody VoidCollectionRequest request) {
-        return CollectionResponse.from(service.voidCollection(publicId, request.reason()), false);
+        return service.toResponse(service.voidCollection(publicId, request.reason()), false);
     }
 }

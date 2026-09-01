@@ -3,6 +3,7 @@ package com.sasimilkservice.collection.service;
 import com.sasimilkservice.audit.spi.AuditRecorder;
 import com.sasimilkservice.center.service.CenterService;
 import com.sasimilkservice.center.spi.CenterSettings;
+import com.sasimilkservice.collection.api.dto.CollectionDtos.CollectionResponse;
 import com.sasimilkservice.collection.domain.CollectionSyncLog;
 import com.sasimilkservice.collection.domain.MilkCollection;
 import com.sasimilkservice.collection.repository.CollectionSyncLogRepository;
@@ -86,6 +87,15 @@ public class CollectionService implements CollectionSettlementGateway {
                 .orElseThrow(() -> new NotFoundException("Collection " + publicId + " not found"));
     }
 
+    /** Build an API response, enriched with the producer's number + name (for challan printing). */
+    public CollectionResponse toResponse(MilkCollection c, boolean duplicate) {
+        ProducerView pv = producers.findById(c.getProducerId()).orElse(null);
+        return CollectionResponse.from(c,
+                pv == null ? null : pv.producerNumber(),
+                pv == null ? null : pv.name(),
+                duplicate);
+    }
+
     @Transactional
     public RecordResult record(RecordCollectionCommand cmd) {
         UUID clientTxnId = cmd.clientTransactionId() != null ? cmd.clientTransactionId() : UUID.randomUUID();
@@ -161,8 +171,16 @@ public class CollectionService implements CollectionSettlementGateway {
 
         Map<String, Object> notifyData = new HashMap<>();
         notifyData.put("producerName", producer.name());
+        notifyData.put("producerNumber", producer.producerNumber());
+        notifyData.put("date", c.getCollectionDate().toString());
         notifyData.put("shift", c.getShift());
         notifyData.put("litres", c.getMilkQuantityLitres());
+        notifyData.put("fat", c.getFatPercentage());
+        notifyData.put("snf", c.getSnfPercentage());
+        notifyData.put("ratePerLitre", c.getApplicableRate());
+        notifyData.put("milkAmount", c.getBaseAmount());
+        notifyData.put("incentiveAmount", c.getIncentiveAmount());
+        notifyData.put("deductionAmount", c.getDeductionAmount());
         notifyData.put("amount", c.getNetAmount());
         notifyData.put("collectionNumber", c.getCollectionNumber());
         notifications.publish(new NotificationRequest("COLLECTION_CREATED", "COLLECTION_CREATED",

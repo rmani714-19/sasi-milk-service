@@ -59,6 +59,8 @@ public final class CollectionDtos {
             String id,
             String collectionNumber,
             Long producerId,
+            String producerNumber,
+            String producerName,
             LocalDate collectionDate,
             String shift,
             BigDecimal litres,
@@ -68,9 +70,11 @@ public final class CollectionDtos {
             BreakdownResponse breakdown,
             boolean duplicate) {
 
-        public static CollectionResponse from(MilkCollection c, boolean duplicate) {
+        public static CollectionResponse from(MilkCollection c, String producerNumber,
+                                              String producerName, boolean duplicate) {
             return new CollectionResponse(c.getPublicId().toString(), c.getCollectionNumber(),
-                    c.getProducerId(), c.getCollectionDate(), c.getShift(), c.getMilkQuantityLitres(),
+                    c.getProducerId(), producerNumber, producerName,
+                    c.getCollectionDate(), c.getShift(), c.getMilkQuantityLitres(),
                     c.getFatPercentage(), c.getSnfPercentage(), c.getStatus().name(),
                     BreakdownResponse.from(c), duplicate);
         }

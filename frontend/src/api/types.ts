@@ -57,6 +57,8 @@ export interface Collection {
   id: string;
   collectionNumber: string;
   producerId: number;
+  producerNumber?: string;
+  producerName?: string;
   collectionDate: string;
   shift: string;
   litres: number;
