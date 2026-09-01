@@ -84,7 +84,10 @@ export function ProducerDetailPage() {
                   <Stack spacing={1}>
                     <Row label="Status" value={<Chip size="small" label={p.status} color={p.status === 'ACTIVE' ? 'success' : 'default'} />} />
                     <Row label="Mobile" value={p.mobileNumber ?? '—'} />
+                    <Row label="Alternate mobile" value={p.alternateMobile ?? '—'} />
+                    <Row label="GPay / UPI" value={p.upiId ?? '—'} />
                     <Row label="Email" value={p.email ?? '—'} />
+                    <Row label="Aadhaar" value={p.aadhaarMasked ?? '—'} />
                     <Row label="Address" value={p.address ?? '—'} />
                     <Row label="QR token" value={<code>{p.qrCode}</code>} />
                   </Stack>

@@ -15,6 +15,7 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -121,6 +122,23 @@ export function ProducersPage() {
   );
 }
 
+const BLANK = {
+  producerNumber: '',
+  producerName: '',
+  mobileNumber: '',
+  alternateMobile: '',
+  email: '',
+  address: '',
+  upiId: '',
+  aadhaarNumber: '',
+  regionId: '',
+  accountHolderName: '',
+  accountNumber: '',
+  bankName: '',
+  bankBranch: '',
+  ifscCode: '',
+};
+
 function ProducerDialog({
   open,
   regions,
@@ -134,46 +152,94 @@ function ProducerDialog({
   onClose: () => void;
   onSubmit: (body: Record<string, unknown>) => void;
 }) {
-  const [f, setF] = useState({ producerName: '', mobileNumber: '', email: '', address: '', regionId: '' });
+  const [f, setF] = useState(BLANK);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const und = (v: string) => (v.trim() ? v.trim() : undefined);
+
+  const submit = () => {
+    const bank =
+      f.accountHolderName || f.accountNumber || f.ifscCode
+        ? {
+            accountHolderName: und(f.accountHolderName),
+            accountNumber: und(f.accountNumber),
+            bankName: und(f.bankName),
+            bankBranch: und(f.bankBranch),
+            ifscCode: f.ifscCode ? f.ifscCode.trim().toUpperCase() : undefined,
+          }
+        : undefined;
+    onSubmit({
+      producerNumber: und(f.producerNumber),
+      producerName: f.producerName.trim(),
+      mobileNumber: und(f.mobileNumber),
+      alternateMobile: und(f.alternateMobile),
+      email: und(f.email),
+      address: und(f.address),
+      upiId: und(f.upiId),
+      aadhaarNumber: f.aadhaarNumber ? f.aadhaarNumber.replace(/\D/g, '') : undefined,
+      regionId: f.regionId ? Number(f.regionId) : undefined,
+      bank,
+    });
+  };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onExited: () => setF(BLANK) }}>
       <DialogTitle>Add producer</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ mt: 1 }}>
-          <TextField label="Name" value={f.producerName} onChange={set('producerName')} autoFocus />
-          <TextField label="Mobile (10 digits)" value={f.mobileNumber} onChange={set('mobileNumber')} />
-          <TextField label="Email" value={f.email} onChange={set('email')} />
+      <DialogContent dividers>
+        <Stack spacing={2}>
+          <SectionLabel>Identity</SectionLabel>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField label="Producer number (optional)" value={f.producerNumber} onChange={set('producerNumber')} helperText="Leave blank to auto-generate" />
+            <TextField label="Producer name" value={f.producerName} onChange={set('producerName')} autoFocus required />
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField label="Aadhaar number (12 digits)" value={f.aadhaarNumber} onChange={set('aadhaarNumber')} inputProps={{ inputMode: 'numeric', maxLength: 14 }} />
+            <TextField select label="Region" value={f.regionId} onChange={set('regionId')}>
+              <MenuItem value="">— none —</MenuItem>
+              {regions.map((r) => (
+                <MenuItem key={r.id} value={r.id}>
+                  {r.code} · {r.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Stack>
           <TextField label="Address" value={f.address} onChange={set('address')} multiline minRows={2} />
-          <TextField select label="Region" value={f.regionId} onChange={set('regionId')}>
-            <MenuItem value="">— none —</MenuItem>
-            {regions.map((r) => (
-              <MenuItem key={r.id} value={r.id}>
-                {r.code} · {r.name}
-              </MenuItem>
-            ))}
-          </TextField>
+
+          <SectionLabel>Contact</SectionLabel>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField label="Mobile number" value={f.mobileNumber} onChange={set('mobileNumber')} inputProps={{ inputMode: 'numeric' }} />
+            <TextField label="Alternate mobile" value={f.alternateMobile} onChange={set('alternateMobile')} inputProps={{ inputMode: 'numeric' }} />
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField label="GPay / UPI ID" value={f.upiId} onChange={set('upiId')} />
+            <TextField label="Email (optional)" value={f.email} onChange={set('email')} />
+          </Stack>
+
+          <SectionLabel>Bank (optional — can be added later)</SectionLabel>
+          <TextField label="Account holder name" value={f.accountHolderName} onChange={set('accountHolderName')} />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField label="Account number" value={f.accountNumber} onChange={set('accountNumber')} inputProps={{ inputMode: 'numeric' }} />
+            <TextField label="IFSC code" value={f.ifscCode} onChange={set('ifscCode')} />
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField label="Bank name" value={f.bankName} onChange={set('bankName')} />
+            <TextField label="Branch" value={f.bankBranch} onChange={set('bankBranch')} />
+          </Stack>
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button
-          variant="contained"
-          disabled={busy || !f.producerName.trim()}
-          onClick={() =>
-            onSubmit({
-              producerName: f.producerName.trim(),
-              mobileNumber: f.mobileNumber || undefined,
-              email: f.email || undefined,
-              address: f.address || undefined,
-              regionId: f.regionId ? Number(f.regionId) : undefined,
-            })
-          }
-        >
+        <Button variant="contained" disabled={busy || !f.producerName.trim()} onClick={submit}>
           Save
         </Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography variant="overline" color="text.secondary" sx={{ mt: 1, lineHeight: 1 }}>
+      {children}
+    </Typography>
   );
 }

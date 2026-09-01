@@ -37,9 +37,25 @@ public class Producer extends AuditableEntity {
     @Column(name = "mobile_number")
     private String mobileNumber;
 
+    @Column(name = "alternate_mobile")
+    private String alternateMobile;
+
+    @Column(name = "upi_id")
+    private String upiId;
+
     private String email;
 
     private String address;
+
+    // Aadhaar: encrypted at rest, masked in responses (never returned in full)
+    @Column(name = "aadhaar_enc")
+    private String aadhaarEnc;
+
+    @Column(name = "aadhaar_last4")
+    private String aadhaarLast4;
+
+    @Column(name = "aadhaar_hash")
+    private String aadhaarHash;
 
     @Column(name = "region_id")
     private Long regionId;

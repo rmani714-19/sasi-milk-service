@@ -11,41 +11,63 @@ import jakarta.validation.constraints.Pattern;
 
 import java.time.LocalDate;
 
-/** Producer + bank-account API payloads. Full account numbers are never returned. */
+/** Producer + bank-account API payloads. Full account / Aadhaar numbers are never returned. */
 public final class ProducerDtos {
 
     private ProducerDtos() {}
 
     private static final String IFSC = "^[A-Za-z]{4}0[A-Za-z0-9]{6}$";
     private static final String MOBILE = "^[0-9]{10}$";
+    private static final String AADHAAR = "^[0-9]{12}$";
+
+    public record BankBlock(
+            String accountHolderName,
+            String accountNumber,
+            String bankName,
+            String bankBranch,
+            String ifscCode) {
+
+        AddBankAccountCommand toCommand() {
+            return new AddBankAccountCommand(accountHolderName, accountNumber, ifscCode, bankName, bankBranch);
+        }
+    }
 
     public record CreateProducerRequest(
+            String producerNumber,
             @NotBlank String producerName,
             @Pattern(regexp = MOBILE, message = "must be a 10-digit mobile number") String mobileNumber,
+            @Pattern(regexp = MOBILE, message = "must be a 10-digit mobile number") String alternateMobile,
             @Email String email,
             String address,
+            String upiId,
+            @Pattern(regexp = AADHAAR, message = "Aadhaar must be 12 digits") String aadhaarNumber,
             Long regionId,
             LocalDate joiningDate,
-            String notes) {
+            String notes,
+            BankBlock bank) {
 
         public CreateProducerCommand toCommand() {
-            return new CreateProducerCommand(producerName, mobileNumber, email, address,
-                    regionId, joiningDate, notes);
+            return new CreateProducerCommand(producerNumber, producerName, mobileNumber, alternateMobile,
+                    email, address, upiId, aadhaarNumber, regionId, joiningDate, notes,
+                    bank == null ? null : bank.toCommand());
         }
     }
 
     public record UpdateProducerRequest(
             @NotBlank String producerName,
             @Pattern(regexp = MOBILE, message = "must be a 10-digit mobile number") String mobileNumber,
+            @Pattern(regexp = MOBILE, message = "must be a 10-digit mobile number") String alternateMobile,
             @Email String email,
             String address,
+            String upiId,
+            @Pattern(regexp = AADHAAR, message = "Aadhaar must be 12 digits") String aadhaarNumber,
             Long regionId,
             String regionChangeReason,
             String notes) {
 
         public UpdateProducerCommand toCommand() {
-            return new UpdateProducerCommand(producerName, mobileNumber, email, address,
-                    regionId, regionChangeReason, notes);
+            return new UpdateProducerCommand(producerName, mobileNumber, alternateMobile, email,
+                    address, upiId, aadhaarNumber, regionId, regionChangeReason, notes);
         }
     }
 
@@ -67,8 +89,11 @@ public final class ProducerDtos {
             String producerNumber,
             String producerName,
             String mobileNumber,
+            String alternateMobile,
             String email,
             String address,
+            String upiId,
+            String aadhaarMasked,
             Long regionId,
             LocalDate joiningDate,
             String status,
@@ -76,7 +101,9 @@ public final class ProducerDtos {
 
         public static ProducerResponse from(Producer p) {
             return new ProducerResponse(p.getId(), p.getPublicId().toString(), p.getProducerNumber(),
-                    p.getProducerName(), p.getMobileNumber(), p.getEmail(), p.getAddress(),
+                    p.getProducerName(), p.getMobileNumber(), p.getAlternateMobile(), p.getEmail(),
+                    p.getAddress(), p.getUpiId(),
+                    p.getAadhaarLast4() == null ? null : "XXXXXXXX" + p.getAadhaarLast4(),
                     p.getRegionId(), p.getJoiningDate(), p.getStatus().name(), p.getQrCode());
         }
     }

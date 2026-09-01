@@ -20,8 +20,11 @@ export interface Producer {
   producerNumber: string;
   producerName: string;
   mobileNumber?: string;
+  alternateMobile?: string;
   email?: string;
   address?: string;
+  upiId?: string;
+  aadhaarMasked?: string;
   regionId?: number;
   joiningDate: string;
   status: string;

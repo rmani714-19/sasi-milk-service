@@ -3,6 +3,7 @@ package com.sasimilkservice.producer.service;
 import com.sasimilkservice.audit.spi.AuditRecorder;
 import com.sasimilkservice.common.crypto.FieldCrypto;
 import com.sasimilkservice.common.error.BusinessRuleException;
+import com.sasimilkservice.common.error.ConflictException;
 import com.sasimilkservice.common.error.NotFoundException;
 import com.sasimilkservice.producer.domain.Producer;
 import com.sasimilkservice.producer.domain.ProducerBankAccount;
@@ -61,20 +62,27 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
     public Producer create(CreateProducerCommand cmd) {
         validateRegion(cmd.regionId());
         Producer p = new Producer();
-        p.setProducerNumber(nextProducerNumber());
+        p.setProducerNumber(resolveProducerNumber(cmd.producerNumber()));
         p.setProducerName(cmd.producerName());
         p.setMobileNumber(cmd.mobileNumber());
+        p.setAlternateMobile(cmd.alternateMobile());
+        p.setUpiId(cmd.upiId());
         p.setEmail(cmd.email());
         p.setAddress(cmd.address());
         p.setRegionId(cmd.regionId());
         p.setNotes(cmd.notes());
         p.setQrCode("SASI-" + p.getPublicId());
+        applyAadhaar(p, cmd.aadhaarNumber());
         if (cmd.joiningDate() != null) {
             p.setJoiningDate(cmd.joiningDate());
         }
         p = producers.save(p);
         audit.record("PRODUCER_CREATED", "Producer", p.getId(),
                 "Producer " + p.getProducerNumber() + " created");
+
+        if (cmd.bank() != null && cmd.bank().isComplete()) {
+            addBankAccount(p.getId(), cmd.bank());
+        }
         return p;
     }
 
@@ -83,9 +91,14 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
         Producer p = require(id);
         p.setProducerName(cmd.producerName());
         p.setMobileNumber(cmd.mobileNumber());
+        p.setAlternateMobile(cmd.alternateMobile());
+        p.setUpiId(cmd.upiId());
         p.setEmail(cmd.email());
         p.setAddress(cmd.address());
         p.setNotes(cmd.notes());
+        if (cmd.aadhaarNumber() != null && !cmd.aadhaarNumber().isBlank()) {
+            applyAadhaar(p, cmd.aadhaarNumber());
+        }
 
         if (!Objects.equals(p.getRegionId(), cmd.regionId())) {
             validateRegion(cmd.regionId());
@@ -151,8 +164,29 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
         }
     }
 
-    private String nextProducerNumber() {
-        return "P%05d".formatted(producers.nextProducerNumberValue());
+    /** Use the supplied number if given (must be unique), else auto-generate {@code P#####}. */
+    private String resolveProducerNumber(String supplied) {
+        if (supplied == null || supplied.isBlank()) {
+            return "P%05d".formatted(producers.nextProducerNumberValue());
+        }
+        String number = supplied.trim();
+        if (producers.findByProducerNumber(number).isPresent()) {
+            throw new ConflictException("Producer number '" + number + "' is already in use");
+        }
+        return number;
+    }
+
+    private void applyAadhaar(Producer p, String aadhaarNumber) {
+        if (aadhaarNumber == null || aadhaarNumber.isBlank()) {
+            return;
+        }
+        String digits = aadhaarNumber.replaceAll("\\D", "");
+        if (digits.length() != 12) {
+            throw new BusinessRuleException("Aadhaar number must be 12 digits");
+        }
+        p.setAadhaarEnc(crypto.encrypt(digits));
+        p.setAadhaarLast4(FieldCrypto.lastFour(digits));
+        p.setAadhaarHash(crypto.blindIndex(digits));
     }
 
     // ---- ProducerDirectory ----
@@ -213,17 +247,26 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
     // ---- commands ----
 
     public record CreateProducerCommand(
-            String producerName, String mobileNumber, String email, String address,
-            Long regionId, java.time.LocalDate joiningDate, String notes) {
+            String producerNumber, String producerName, String mobileNumber, String alternateMobile,
+            String email, String address, String upiId, String aadhaarNumber,
+            Long regionId, java.time.LocalDate joiningDate, String notes,
+            AddBankAccountCommand bank) {
     }
 
     public record UpdateProducerCommand(
-            String producerName, String mobileNumber, String email, String address,
+            String producerName, String mobileNumber, String alternateMobile, String email,
+            String address, String upiId, String aadhaarNumber,
             Long regionId, String regionChangeReason, String notes) {
     }
 
     public record AddBankAccountCommand(
             String accountHolderName, String accountNumber, String ifscCode,
             String bankName, String bankBranch) {
+
+        boolean isComplete() {
+            return accountHolderName != null && !accountHolderName.isBlank()
+                    && accountNumber != null && !accountNumber.isBlank()
+                    && ifscCode != null && !ifscCode.isBlank();
+        }
     }
 }
