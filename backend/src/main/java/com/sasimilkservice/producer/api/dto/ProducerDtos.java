@@ -5,8 +5,10 @@ import com.sasimilkservice.producer.domain.ProducerBankAccount;
 import com.sasimilkservice.producer.service.ProducerService.AddBankAccountCommand;
 import com.sasimilkservice.producer.service.ProducerService.CreateProducerCommand;
 import com.sasimilkservice.producer.service.ProducerService.UpdateProducerCommand;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 
 import java.time.LocalDate;
@@ -21,11 +23,11 @@ public final class ProducerDtos {
     private static final String AADHAAR = "^[0-9]{12}$";
 
     public record BankBlock(
-            String accountHolderName,
-            String accountNumber,
-            String bankName,
+            @NotBlank String accountHolderName,
+            @NotBlank String accountNumber,
+            @NotBlank String bankName,
             String bankBranch,
-            String ifscCode) {
+            @Pattern(regexp = IFSC, message = "invalid IFSC code") @NotBlank String ifscCode) {
 
         AddBankAccountCommand toCommand() {
             return new AddBankAccountCommand(accountHolderName, accountNumber, ifscCode, bankName, bankBranch);
@@ -44,7 +46,7 @@ public final class ProducerDtos {
             Long regionId,
             LocalDate joiningDate,
             String notes,
-            BankBlock bank) {
+            @NotNull(message = "bank details are required") @Valid BankBlock bank) {
 
         public CreateProducerCommand toCommand() {
             return new CreateProducerCommand(producerNumber, producerName, mobileNumber, alternateMobile,

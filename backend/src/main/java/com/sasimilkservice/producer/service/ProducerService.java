@@ -76,13 +76,14 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
         if (cmd.joiningDate() != null) {
             p.setJoiningDate(cmd.joiningDate());
         }
+        if (cmd.bank() == null || !cmd.bank().isComplete()) {
+            throw new BusinessRuleException("Bank details (account holder, account number, IFSC) are required");
+        }
+
         p = producers.save(p);
         audit.record("PRODUCER_CREATED", "Producer", p.getId(),
                 "Producer " + p.getProducerNumber() + " created");
-
-        if (cmd.bank() != null && cmd.bank().isComplete()) {
-            addBankAccount(p.getId(), cmd.bank());
-        }
+        addBankAccount(p.getId(), cmd.bank());
         return p;
     }
 

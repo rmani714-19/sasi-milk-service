@@ -156,17 +156,11 @@ function ProducerDialog({
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const und = (v: string) => (v.trim() ? v.trim() : undefined);
 
+  const bankReady =
+    !!f.accountHolderName.trim() && !!f.accountNumber.trim() && !!f.bankName.trim() && !!f.ifscCode.trim();
+  const ready = !!f.producerName.trim() && bankReady;
+
   const submit = () => {
-    const bank =
-      f.accountHolderName || f.accountNumber || f.ifscCode
-        ? {
-            accountHolderName: und(f.accountHolderName),
-            accountNumber: und(f.accountNumber),
-            bankName: und(f.bankName),
-            bankBranch: und(f.bankBranch),
-            ifscCode: f.ifscCode ? f.ifscCode.trim().toUpperCase() : undefined,
-          }
-        : undefined;
     onSubmit({
       producerNumber: und(f.producerNumber),
       producerName: f.producerName.trim(),
@@ -177,7 +171,13 @@ function ProducerDialog({
       upiId: und(f.upiId),
       aadhaarNumber: f.aadhaarNumber ? f.aadhaarNumber.replace(/\D/g, '') : undefined,
       regionId: f.regionId ? Number(f.regionId) : undefined,
-      bank,
+      bank: {
+        accountHolderName: f.accountHolderName.trim(),
+        accountNumber: f.accountNumber.trim(),
+        bankName: f.bankName.trim(),
+        bankBranch: und(f.bankBranch),
+        ifscCode: f.ifscCode.trim().toUpperCase(),
+      },
     });
   };
 
@@ -214,21 +214,21 @@ function ProducerDialog({
             <TextField label="Email (optional)" value={f.email} onChange={set('email')} />
           </Stack>
 
-          <SectionLabel>Bank (optional — can be added later)</SectionLabel>
-          <TextField label="Account holder name" value={f.accountHolderName} onChange={set('accountHolderName')} />
+          <SectionLabel>Bank details (required)</SectionLabel>
+          <TextField label="Account holder name" value={f.accountHolderName} onChange={set('accountHolderName')} required />
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField label="Account number" value={f.accountNumber} onChange={set('accountNumber')} inputProps={{ inputMode: 'numeric' }} />
-            <TextField label="IFSC code" value={f.ifscCode} onChange={set('ifscCode')} />
+            <TextField label="Account number" value={f.accountNumber} onChange={set('accountNumber')} inputProps={{ inputMode: 'numeric' }} required />
+            <TextField label="IFSC code" value={f.ifscCode} onChange={set('ifscCode')} required />
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField label="Bank name" value={f.bankName} onChange={set('bankName')} />
-            <TextField label="Branch" value={f.bankBranch} onChange={set('bankBranch')} />
+            <TextField label="Bank name" value={f.bankName} onChange={set('bankName')} required />
+            <TextField label="Branch (optional)" value={f.bankBranch} onChange={set('bankBranch')} />
           </Stack>
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" disabled={busy || !f.producerName.trim()} onClick={submit}>
+        <Button variant="contained" disabled={busy || !ready} onClick={submit}>
           Save
         </Button>
       </DialogActions>
