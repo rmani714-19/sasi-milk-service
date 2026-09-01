@@ -18,11 +18,14 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
 | Modules: deduction, advance, settlement | done — weekly settlement lifecycle (DRAFT→CALCULATED→REVIEWED→APPROVED), advance ledger, cancel/unwind |
 | Modules: payout, notification, report, vehicle | done — payout provider abstraction + webhook + retry; notification queue + templates + channels; CSV reports; vehicle GPS stub |
 | **Backend** | **all 17 modules implemented** |
-| Frontend, Docker, CI, AWS | not started |
+| Frontend (React + TS + MUI PWA) | done — all screens wired, offline collection queue |
+| Docker, CI, AWS | not started |
 
 ## Run locally
 
-Requires JDK 21 and a PostgreSQL database.
+Requires JDK 21, Node 20+, and a PostgreSQL database.
+
+**Backend** (port 8080):
 
 ```bash
 createdb sasi_milk_service
@@ -35,6 +38,16 @@ DB_USERNAME=youruser DB_PASSWORD=yourpass \
 - API base: `http://localhost:8080/api/v1`
 - Swagger UI: `http://localhost:8080/swagger-ui.html`
 - Health: `http://localhost:8080/actuator/health`
+
+**Frontend** (port 5173, proxies `/api` to the backend):
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173` and sign in with `admin` / `admin123`.
 
 Bootstrap admin (seeded by `V11`, **change immediately**): `admin` / `admin123`.
 
