@@ -9,6 +9,7 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import Grid from '@mui/material/Grid2';
+import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -19,6 +20,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
+import { useRegions } from '../api/common';
 import { PageHeader } from '../components/PageHeader';
 import { QueryBoundary, useToast } from '../components/ui';
 import { useAuth } from '../lib/auth';
@@ -30,6 +32,8 @@ export function ProducerDetailPage() {
   const qc = useQueryClient();
   const { can } = useAuth();
   const [bankOpen, setBankOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const regions = useRegions();
 
   const producer = useQuery({
     queryKey: ['producer', id],
@@ -61,6 +65,18 @@ export function ProducerDetailPage() {
     onError: toast.fromError,
   });
 
+  const edit = useMutation({
+    mutationFn: async (body: Record<string, unknown>) =>
+      (await api.put(`/producers/${id}`, body)).data,
+    onSuccess: () => {
+      toast.success('Producer updated');
+      qc.invalidateQueries({ queryKey: ['producer', id] });
+      qc.invalidateQueries({ queryKey: ['producers'] });
+      setEditOpen(false);
+    },
+    onError: toast.fromError,
+  });
+
   return (
     <QueryBoundary query={producer}>
       {(p) => (
@@ -69,11 +85,17 @@ export function ProducerDetailPage() {
             title={p.producerName}
             subtitle={`${p.producerNumber} · joined ${p.joiningDate}`}
             action={
-              can('MANAGE_PRODUCERS') &&
-              p.status === 'ACTIVE' && (
-                <Button color="error" onClick={() => deactivate.mutate()} disabled={deactivate.isPending}>
-                  Deactivate
-                </Button>
+              can('MANAGE_PRODUCERS') && (
+                <Stack direction="row" spacing={1}>
+                  <Button variant="outlined" onClick={() => setEditOpen(true)}>
+                    Edit
+                  </Button>
+                  {p.status === 'ACTIVE' && (
+                    <Button color="error" onClick={() => deactivate.mutate()} disabled={deactivate.isPending}>
+                      Deactivate
+                    </Button>
+                  )}
+                </Stack>
               )
             }
           />
@@ -144,9 +166,109 @@ export function ProducerDetailPage() {
             onClose={() => setBankOpen(false)}
             onSubmit={(body) => addBank.mutate(body)}
           />
+          <EditProducerDialog
+            key={editOpen ? 'open' : 'closed'}
+            open={editOpen}
+            producer={p}
+            regions={regions.data ?? []}
+            busy={edit.isPending}
+            onClose={() => setEditOpen(false)}
+            onSubmit={(body) => edit.mutate(body)}
+          />
         </>
       )}
     </QueryBoundary>
+  );
+}
+
+function EditProducerDialog({
+  open,
+  producer,
+  regions,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  producer: Producer;
+  regions: { id: number; code: string; name: string }[];
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (body: Record<string, unknown>) => void;
+}) {
+  const [f, setF] = useState({
+    producerName: producer.producerName,
+    mobileNumber: producer.mobileNumber ?? '',
+    alternateMobile: producer.alternateMobile ?? '',
+    email: producer.email ?? '',
+    address: producer.address ?? '',
+    upiId: producer.upiId ?? '',
+    regionId: producer.regionId ? String(producer.regionId) : '',
+    aadhaarNumber: '',
+    regionChangeReason: '',
+  });
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const und = (v: string) => (v.trim() ? v.trim() : undefined);
+  const regionChanged = f.regionId !== (producer.regionId ? String(producer.regionId) : '');
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>Edit {producer.producerNumber}</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2}>
+          <TextField label="Producer name" value={f.producerName} onChange={set('producerName')} required />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField label="Mobile number" value={f.mobileNumber} onChange={set('mobileNumber')} inputProps={{ inputMode: 'numeric' }} />
+            <TextField label="Alternate mobile" value={f.alternateMobile} onChange={set('alternateMobile')} inputProps={{ inputMode: 'numeric' }} />
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <TextField label="GPay / UPI ID" value={f.upiId} onChange={set('upiId')} />
+            <TextField label="Email" value={f.email} onChange={set('email')} />
+          </Stack>
+          <TextField
+            label="Aadhaar number"
+            value={f.aadhaarNumber}
+            onChange={set('aadhaarNumber')}
+            inputProps={{ inputMode: 'numeric', maxLength: 14 }}
+            helperText={producer.aadhaarMasked ? `Current: ${producer.aadhaarMasked} — leave blank to keep` : 'Leave blank if not applicable'}
+          />
+          <TextField label="Address" value={f.address} onChange={set('address')} multiline minRows={2} />
+          <TextField select label="Region" value={f.regionId} onChange={set('regionId')}>
+            <MenuItem value="">— none —</MenuItem>
+            {regions.map((r) => (
+              <MenuItem key={r.id} value={r.id}>
+                {r.code} · {r.name}
+              </MenuItem>
+            ))}
+          </TextField>
+          {regionChanged && (
+            <TextField label="Reason for region change" value={f.regionChangeReason} onChange={set('regionChangeReason')} />
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button
+          variant="contained"
+          disabled={busy || !f.producerName.trim()}
+          onClick={() =>
+            onSubmit({
+              producerName: f.producerName.trim(),
+              mobileNumber: und(f.mobileNumber),
+              alternateMobile: und(f.alternateMobile),
+              email: und(f.email),
+              address: und(f.address),
+              upiId: und(f.upiId),
+              aadhaarNumber: f.aadhaarNumber ? f.aadhaarNumber.replace(/\D/g, '') : undefined,
+              regionId: f.regionId ? Number(f.regionId) : undefined,
+              regionChangeReason: und(f.regionChangeReason),
+            })
+          }
+        >
+          Save changes
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
