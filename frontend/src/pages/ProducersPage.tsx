@@ -123,7 +123,6 @@ export function ProducersPage() {
 }
 
 const BLANK = {
-  producerNumber: '',
   producerName: '',
   mobileNumber: '',
   alternateMobile: '',
@@ -162,7 +161,6 @@ function ProducerDialog({
 
   const submit = () => {
     onSubmit({
-      producerNumber: und(f.producerNumber),
       producerName: f.producerName.trim(),
       mobileNumber: und(f.mobileNumber),
       alternateMobile: und(f.alternateMobile),
@@ -187,10 +185,10 @@ function ProducerDialog({
       <DialogContent dividers>
         <Stack spacing={2}>
           <SectionLabel>Identity</SectionLabel>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField label="Producer number (optional)" value={f.producerNumber} onChange={set('producerNumber')} helperText="Leave blank to auto-generate" />
-            <TextField label="Producer name" value={f.producerName} onChange={set('producerName')} autoFocus required />
-          </Stack>
+          <Typography variant="caption" color="text.secondary" sx={{ mt: -0.5 }}>
+            Producer number is assigned automatically on save.
+          </Typography>
+          <TextField label="Producer name" value={f.producerName} onChange={set('producerName')} autoFocus required />
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField label="Aadhaar number (12 digits)" value={f.aadhaarNumber} onChange={set('aadhaarNumber')} inputProps={{ inputMode: 'numeric', maxLength: 14 }} />
             <TextField select label="Region" value={f.regionId} onChange={set('regionId')}>

@@ -35,7 +35,6 @@ public final class ProducerDtos {
     }
 
     public record CreateProducerRequest(
-            String producerNumber,
             @NotBlank String producerName,
             @Pattern(regexp = MOBILE, message = "must be a 10-digit mobile number") String mobileNumber,
             @Pattern(regexp = MOBILE, message = "must be a 10-digit mobile number") String alternateMobile,
@@ -49,7 +48,7 @@ public final class ProducerDtos {
             @NotNull(message = "bank details are required") @Valid BankBlock bank) {
 
         public CreateProducerCommand toCommand() {
-            return new CreateProducerCommand(producerNumber, producerName, mobileNumber, alternateMobile,
+            return new CreateProducerCommand(producerName, mobileNumber, alternateMobile,
                     email, address, upiId, aadhaarNumber, regionId, joiningDate, notes,
                     bank == null ? null : bank.toCommand());
         }

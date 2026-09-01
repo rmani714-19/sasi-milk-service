@@ -3,7 +3,6 @@ package com.sasimilkservice.producer.service;
 import com.sasimilkservice.audit.spi.AuditRecorder;
 import com.sasimilkservice.common.crypto.FieldCrypto;
 import com.sasimilkservice.common.error.BusinessRuleException;
-import com.sasimilkservice.common.error.ConflictException;
 import com.sasimilkservice.common.error.NotFoundException;
 import com.sasimilkservice.producer.domain.Producer;
 import com.sasimilkservice.producer.domain.ProducerBankAccount;
@@ -62,7 +61,7 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
     public Producer create(CreateProducerCommand cmd) {
         validateRegion(cmd.regionId());
         Producer p = new Producer();
-        p.setProducerNumber(resolveProducerNumber(cmd.producerNumber()));
+        p.setProducerNumber(nextProducerNumber());
         p.setProducerName(cmd.producerName());
         p.setMobileNumber(cmd.mobileNumber());
         p.setAlternateMobile(cmd.alternateMobile());
@@ -165,16 +164,8 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
         }
     }
 
-    /** Use the supplied number if given (must be unique), else auto-generate {@code P#####}. */
-    private String resolveProducerNumber(String supplied) {
-        if (supplied == null || supplied.isBlank()) {
-            return "P%05d".formatted(producers.nextProducerNumberValue());
-        }
-        String number = supplied.trim();
-        if (producers.findByProducerNumber(number).isPresent()) {
-            throw new ConflictException("Producer number '" + number + "' is already in use");
-        }
-        return number;
+    private String nextProducerNumber() {
+        return "P%05d".formatted(producers.nextProducerNumberValue());
     }
 
     private void applyAadhaar(Producer p, String aadhaarNumber) {
@@ -248,7 +239,7 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
     // ---- commands ----
 
     public record CreateProducerCommand(
-            String producerNumber, String producerName, String mobileNumber, String alternateMobile,
+            String producerName, String mobileNumber, String alternateMobile,
             String email, String address, String upiId, String aadhaarNumber,
             Long regionId, java.time.LocalDate joiningDate, String notes,
             AddBankAccountCommand bank) {
