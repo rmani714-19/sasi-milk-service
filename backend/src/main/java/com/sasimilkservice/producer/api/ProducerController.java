@@ -5,6 +5,7 @@ import com.sasimilkservice.producer.api.dto.ProducerDtos.BankAccountResponse;
 import com.sasimilkservice.producer.api.dto.ProducerDtos.CreateBankAccountRequest;
 import com.sasimilkservice.producer.api.dto.ProducerDtos.CreateProducerRequest;
 import com.sasimilkservice.producer.api.dto.ProducerDtos.ProducerResponse;
+import com.sasimilkservice.producer.api.dto.ProducerDtos.UpdateBankAccountRequest;
 import com.sasimilkservice.producer.api.dto.ProducerDtos.UpdateProducerRequest;
 import com.sasimilkservice.producer.domain.Producer;
 import com.sasimilkservice.producer.service.ProducerService;
@@ -82,5 +83,24 @@ public class ProducerController {
     public BankAccountResponse addBankAccount(@PathVariable long id,
                                               @Valid @RequestBody CreateBankAccountRequest request) {
         return BankAccountResponse.from(service.addBankAccount(id, request.toCommand()));
+    }
+
+    @PutMapping("/{id}/bank-accounts/{accountId}")
+    @PreAuthorize("hasAuthority('MANAGE_PRODUCERS')")
+    public BankAccountResponse updateBankAccount(@PathVariable long id, @PathVariable long accountId,
+                                                 @Valid @RequestBody UpdateBankAccountRequest request) {
+        return BankAccountResponse.from(service.updateBankAccount(id, accountId, request.toCommand()));
+    }
+
+    @PostMapping("/{id}/bank-accounts/{accountId}/primary")
+    @PreAuthorize("hasAuthority('MANAGE_PRODUCERS')")
+    public BankAccountResponse setPrimaryBankAccount(@PathVariable long id, @PathVariable long accountId) {
+        return BankAccountResponse.from(service.setPrimaryBankAccount(id, accountId));
+    }
+
+    @PostMapping("/{id}/bank-accounts/{accountId}/deactivate")
+    @PreAuthorize("hasAuthority('MANAGE_PRODUCERS')")
+    public BankAccountResponse deactivateBankAccount(@PathVariable long id, @PathVariable long accountId) {
+        return BankAccountResponse.from(service.deactivateBankAccount(id, accountId));
     }
 }

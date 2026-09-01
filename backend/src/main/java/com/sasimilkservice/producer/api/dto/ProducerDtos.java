@@ -84,6 +84,20 @@ public final class ProducerDtos {
         }
     }
 
+    /** Edit an existing bank account. {@code accountNumber} blank = keep the current one. */
+    public record UpdateBankAccountRequest(
+            @NotBlank String accountHolderName,
+            String accountNumber,
+            @Pattern(regexp = IFSC, message = "invalid IFSC code") @NotBlank String ifscCode,
+            String bankName,
+            String bankBranch) {
+
+        public com.sasimilkservice.producer.service.ProducerService.UpdateBankAccountCommand toCommand() {
+            return new com.sasimilkservice.producer.service.ProducerService.UpdateBankAccountCommand(
+                    accountHolderName, accountNumber, ifscCode, bankName, bankBranch);
+        }
+    }
+
     public record ProducerResponse(
             Long id,
             String publicId,

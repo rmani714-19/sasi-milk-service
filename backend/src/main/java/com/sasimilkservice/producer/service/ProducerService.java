@@ -138,7 +138,12 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
         }
 
         bankAccounts.findByProducerIdAndPrimaryTrueAndStatus(producerId, ProducerBankAccount.Status.ACTIVE)
-                .ifPresent(existing -> existing.setPrimary(false));
+                .ifPresent(existing -> {
+                    existing.setPrimary(false);
+                    // push the demote before inserting the new primary — the partial unique
+                    // index (one active primary per producer) is checked per statement
+                    bankAccounts.saveAndFlush(existing);
+                });
 
         ProducerBankAccount acc = new ProducerBankAccount();
         acc.setProducerId(producerId);
@@ -155,6 +160,67 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
         audit.record("BANK_DETAILS_UPDATED", "Producer", p.getId(),
                 "Bank account ending " + acc.getAccountNumberLast4() + " added for "
                         + p.getProducerNumber());
+        return acc;
+    }
+
+    @Transactional
+    public ProducerBankAccount updateBankAccount(long producerId, long accountId, UpdateBankAccountCommand cmd) {
+        ProducerBankAccount acc = requireBankAccount(producerId, accountId);
+        acc.setAccountHolderName(cmd.accountHolderName());
+        acc.setIfscCode(cmd.ifscCode().toUpperCase());
+        acc.setBankName(cmd.bankName());
+        acc.setBankBranch(cmd.bankBranch());
+        if (cmd.accountNumber() != null && !cmd.accountNumber().isBlank()) {
+            String digits = cmd.accountNumber().replaceAll("\\s", "");
+            if (digits.length() < 6) {
+                throw new BusinessRuleException("Bank account number looks invalid");
+            }
+            acc.setAccountNumberEnc(crypto.encrypt(digits));
+            acc.setAccountNumberLast4(FieldCrypto.lastFour(digits));
+            acc.setAccountNumberHash(crypto.blindIndex(digits));
+        }
+        audit.record("BANK_DETAILS_UPDATED", "Producer", producerId,
+                "Bank account " + accountId + " (ending " + acc.getAccountNumberLast4() + ") updated");
+        return acc;
+    }
+
+    @Transactional
+    public ProducerBankAccount setPrimaryBankAccount(long producerId, long accountId) {
+        ProducerBankAccount acc = requireBankAccount(producerId, accountId);
+        if (acc.getStatus() != ProducerBankAccount.Status.ACTIVE) {
+            throw new BusinessRuleException("Cannot make an inactive account primary");
+        }
+        if (acc.isPrimary()) {
+            return acc;
+        }
+        bankAccounts.findByProducerIdAndPrimaryTrueAndStatus(producerId, ProducerBankAccount.Status.ACTIVE)
+                .ifPresent(current -> {
+                    current.setPrimary(false);
+                    bankAccounts.saveAndFlush(current);
+                });
+        acc.setPrimary(true);
+        audit.record("BANK_DETAILS_UPDATED", "Producer", producerId,
+                "Bank account " + accountId + " set as primary");
+        return acc;
+    }
+
+    @Transactional
+    public ProducerBankAccount deactivateBankAccount(long producerId, long accountId) {
+        ProducerBankAccount acc = requireBankAccount(producerId, accountId);
+        acc.setStatus(ProducerBankAccount.Status.INACTIVE);
+        acc.setPrimary(false);
+        audit.record("BANK_DETAILS_UPDATED", "Producer", producerId,
+                "Bank account " + accountId + " deactivated");
+        return acc;
+    }
+
+    private ProducerBankAccount requireBankAccount(long producerId, long accountId) {
+        require(producerId);
+        ProducerBankAccount acc = bankAccounts.findById(accountId)
+                .orElseThrow(() -> NotFoundException.of("Bank account", accountId));
+        if (!acc.getProducerId().equals(producerId)) {
+            throw NotFoundException.of("Bank account", accountId);
+        }
         return acc;
     }
 
@@ -249,6 +315,11 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
             String producerName, String mobileNumber, String alternateMobile, String email,
             String address, String upiId, String aadhaarNumber,
             Long regionId, String regionChangeReason, String notes) {
+    }
+
+    public record UpdateBankAccountCommand(
+            String accountHolderName, String accountNumber, String ifscCode,
+            String bankName, String bankBranch) {
     }
 
     public record AddBankAccountCommand(

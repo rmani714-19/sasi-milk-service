@@ -33,6 +33,7 @@ export function ProducerDetailPage() {
   const { can } = useAuth();
   const [bankOpen, setBankOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [editBank, setEditBank] = useState<BankAccount | null>(null);
   const regions = useRegions();
 
   const producer = useQuery({
@@ -73,6 +74,37 @@ export function ProducerDetailPage() {
       qc.invalidateQueries({ queryKey: ['producer', id] });
       qc.invalidateQueries({ queryKey: ['producers'] });
       setEditOpen(false);
+    },
+    onError: toast.fromError,
+  });
+
+  const bankInvalidate = () => qc.invalidateQueries({ queryKey: ['producer', id, 'banks'] });
+
+  const updateBank = useMutation({
+    mutationFn: async ({ accountId, body }: { accountId: number; body: Record<string, unknown> }) =>
+      (await api.put(`/producers/${id}/bank-accounts/${accountId}`, body)).data,
+    onSuccess: () => {
+      toast.success('Bank account updated');
+      bankInvalidate();
+      setEditBank(null);
+    },
+    onError: toast.fromError,
+  });
+  const setPrimary = useMutation({
+    mutationFn: async (accountId: number) =>
+      (await api.post(`/producers/${id}/bank-accounts/${accountId}/primary`)).data,
+    onSuccess: () => {
+      toast.success('Primary account changed');
+      bankInvalidate();
+    },
+    onError: toast.fromError,
+  });
+  const deactivateBank = useMutation({
+    mutationFn: async (accountId: number) =>
+      (await api.post(`/producers/${id}/bank-accounts/${accountId}/deactivate`)).data,
+    onSuccess: () => {
+      toast.success('Bank account deactivated');
+      bankInvalidate();
     },
     onError: toast.fromError,
   });
@@ -125,7 +157,7 @@ export function ProducerDetailPage() {
                   </Button>
                 )}
               </Stack>
-              <Card>
+              <Card sx={{ overflowX: 'auto' }}>
                 {can('MANAGE_PRODUCERS') ? (
                   <QueryBoundary query={banks} empty={(d) => d.length === 0}>
                     {(d) => (
@@ -135,16 +167,38 @@ export function ProducerDetailPage() {
                             <TableCell>Holder</TableCell>
                             <TableCell>Account</TableCell>
                             <TableCell>IFSC</TableCell>
-                            <TableCell>Primary</TableCell>
+                            <TableCell>Status</TableCell>
+                            <TableCell align="right">Actions</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
                           {d.map((b) => (
-                            <TableRow key={b.id}>
+                            <TableRow key={b.id} sx={{ opacity: b.status === 'ACTIVE' ? 1 : 0.5 }}>
                               <TableCell>{b.accountHolderName}</TableCell>
                               <TableCell>{b.accountNumberMasked}</TableCell>
                               <TableCell>{b.ifscCode}</TableCell>
-                              <TableCell>{b.primary ? '✓' : ''}</TableCell>
+                              <TableCell>
+                                {b.primary ? (
+                                  <Chip size="small" color="primary" label="Primary" />
+                                ) : (
+                                  <Chip size="small" variant="outlined" label={b.status} />
+                                )}
+                              </TableCell>
+                              <TableCell align="right">
+                                <Button size="small" onClick={() => setEditBank(b)}>
+                                  Edit
+                                </Button>
+                                {b.status === 'ACTIVE' && !b.primary && (
+                                  <Button size="small" onClick={() => setPrimary.mutate(b.id)}>
+                                    Make primary
+                                  </Button>
+                                )}
+                                {b.status === 'ACTIVE' && (
+                                  <Button size="small" color="error" onClick={() => deactivateBank.mutate(b.id)}>
+                                    Deactivate
+                                  </Button>
+                                )}
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -165,6 +219,13 @@ export function ProducerDetailPage() {
             busy={addBank.isPending}
             onClose={() => setBankOpen(false)}
             onSubmit={(body) => addBank.mutate(body)}
+          />
+          <EditBankDialog
+            key={editBank?.id ?? 'none'}
+            account={editBank}
+            busy={updateBank.isPending}
+            onClose={() => setEditBank(null)}
+            onSubmit={(body) => editBank && updateBank.mutate({ accountId: editBank.id, body })}
           />
           <EditProducerDialog
             key={editOpen ? 'open' : 'closed'}
@@ -320,6 +381,66 @@ function BankDialog({
           }
         >
           Save
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function EditBankDialog({
+  account,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  account: BankAccount | null;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (b: Record<string, unknown>) => void;
+}) {
+  const [f, setF] = useState({
+    accountHolderName: account?.accountHolderName ?? '',
+    accountNumber: '',
+    ifscCode: account?.ifscCode ?? '',
+    bankName: account?.bankName ?? '',
+    bankBranch: account?.bankBranch ?? '',
+  });
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+
+  return (
+    <Dialog open={!!account} onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle>Edit bank account</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          <TextField label="Account holder name" value={f.accountHolderName} onChange={set('accountHolderName')} required />
+          <TextField
+            label="Account number"
+            value={f.accountNumber}
+            onChange={set('accountNumber')}
+            inputProps={{ inputMode: 'numeric' }}
+            helperText={account ? `Current: ${account.accountNumberMasked} — leave blank to keep` : ''}
+          />
+          <TextField label="IFSC" value={f.ifscCode} onChange={set('ifscCode')} required />
+          <TextField label="Bank name" value={f.bankName} onChange={set('bankName')} />
+          <TextField label="Branch" value={f.bankBranch} onChange={set('bankBranch')} />
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button
+          variant="contained"
+          disabled={busy || !f.accountHolderName.trim() || !f.ifscCode.trim()}
+          onClick={() =>
+            onSubmit({
+              accountHolderName: f.accountHolderName.trim(),
+              accountNumber: f.accountNumber.trim() || undefined,
+              ifscCode: f.ifscCode.trim().toUpperCase(),
+              bankName: f.bankName.trim() || undefined,
+              bankBranch: f.bankBranch.trim() || undefined,
+            })
+          }
+        >
+          Save changes
         </Button>
       </DialogActions>
     </Dialog>
