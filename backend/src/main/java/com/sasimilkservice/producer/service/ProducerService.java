@@ -49,7 +49,7 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
     }
 
     public Page<Producer> search(Producer.Status status, Long regionId, String q, Pageable pageable) {
-        String query = (q == null || q.isBlank()) ? null : q.trim();
+        String query = (q == null || q.isBlank()) ? "" : q.trim();
         return producers.search(status, regionId, query, pageable);
     }
 

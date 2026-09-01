@@ -32,6 +32,7 @@ public final class SettlementDtos {
 
     public record SettlementSummary(
             String id,
+            long internalId,
             String settlementNumber,
             LocalDate periodStart,
             LocalDate periodEnd,
@@ -41,7 +42,7 @@ public final class SettlementDtos {
             BigDecimal totalNetPayable) {
 
         public static SettlementSummary from(Settlement s) {
-            return new SettlementSummary(s.getPublicId().toString(), s.getSettlementNumber(),
+            return new SettlementSummary(s.getPublicId().toString(), s.getId(), s.getSettlementNumber(),
                     s.getPeriodStart(), s.getPeriodEnd(), s.getStatus().name(),
                     s.getTotalProducers(), s.getTotalLitres(), s.getTotalNetPayable());
         }
@@ -49,6 +50,7 @@ public final class SettlementDtos {
 
     public record SettlementDetail(
             String id,
+            long internalId,
             String settlementNumber,
             LocalDate periodStart,
             LocalDate periodEnd,
@@ -67,7 +69,7 @@ public final class SettlementDtos {
             List<ItemResponse> items) {
 
         public static SettlementDetail from(Settlement s, List<SettlementItem> items) {
-            return new SettlementDetail(s.getPublicId().toString(), s.getSettlementNumber(),
+            return new SettlementDetail(s.getPublicId().toString(), s.getId(), s.getSettlementNumber(),
                     s.getPeriodStart(), s.getPeriodEnd(), s.getStatus().name(),
                     s.getRoundingMode(), s.getRoundingScale(), s.getTotalProducers(),
                     s.getTotalLitres(), s.getTotalMilkAmount(), s.getTotalIncentive(),

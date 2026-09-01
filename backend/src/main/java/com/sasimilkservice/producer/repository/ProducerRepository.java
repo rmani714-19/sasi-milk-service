@@ -18,11 +18,12 @@ public interface ProducerRepository extends JpaRepository<Producer, Long> {
 
     Optional<Producer> findByPublicId(UUID publicId);
 
+    // :q is passed as "" (never null) so PostgreSQL can type it; casts type the other optional filters
     @Query("""
             select p from Producer p
-            where (:status is null or p.status = :status)
-              and (:regionId is null or p.regionId = :regionId)
-              and (:q is null
+            where (cast(:status as string) is null or p.status = :status)
+              and (cast(:regionId as long) is null or p.regionId = :regionId)
+              and (:q = ''
                    or lower(p.producerName) like lower(concat('%', :q, '%'))
                    or lower(p.producerNumber) like lower(concat('%', :q, '%')))
             """)

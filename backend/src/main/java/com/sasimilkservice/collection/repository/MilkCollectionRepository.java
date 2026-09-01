@@ -18,12 +18,13 @@ public interface MilkCollectionRepository extends JpaRepository<MilkCollection, 
 
     Optional<MilkCollection> findByPublicId(UUID publicId);
 
+    // casts type the parameters so PostgreSQL can evaluate the `:x is null` checks
     @Query("""
             select c from MilkCollection c
-            where (:producerId is null or c.producerId = :producerId)
-              and (:date is null or c.collectionDate = :date)
-              and (:shift is null or c.shift = :shift)
-              and (:status is null or c.status = :status)
+            where (cast(:producerId as long) is null or c.producerId = :producerId)
+              and (cast(:date as date) is null or c.collectionDate = :date)
+              and (cast(:shift as string) is null or c.shift = :shift)
+              and (cast(:status as string) is null or c.status = :status)
             order by c.collectionDate desc, c.id desc
             """)
     Page<MilkCollection> search(@Param("producerId") Long producerId,
