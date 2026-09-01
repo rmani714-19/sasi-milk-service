@@ -15,7 +15,8 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
 | Calculation contracts + `RateFormula` / rounding | done + unit-tested |
 | Auth (JWT + refresh rotation), RBAC | scaffolded |
 | Modules: center, region, producer, rate, incentive, collection | scaffolded (entity→repo→service→controller) |
-| Modules: deduction, advance, settlement, payout, notification, report, vehicle | SPI only — not yet implemented |
+| Modules: deduction, advance, settlement | implemented — weekly settlement lifecycle (DRAFT→CALCULATED→REVIEWED→APPROVED), advance ledger, cancel/unwind |
+| Modules: payout, notification, report, vehicle | SPI only — not yet implemented |
 | Frontend, Docker, CI, AWS | not started |
 
 ## Run locally

@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -33,4 +34,9 @@ public interface MilkCollectionRepository extends JpaRepository<MilkCollection, 
 
     @Query(value = "select nextval('collection_number_seq')", nativeQuery = true)
     long nextCollectionNumberValue();
+
+    List<MilkCollection> findByStatusAndSettlementItemIdIsNullAndCollectionDateBetween(
+            MilkCollection.Status status, LocalDate start, LocalDate end);
+
+    List<MilkCollection> findBySettlementItemId(Long settlementItemId);
 }

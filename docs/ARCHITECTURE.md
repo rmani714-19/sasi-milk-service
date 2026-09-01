@@ -187,13 +187,18 @@ overlapping `ts_value` rows, overlapping settlement periods, duplicate payout.
 
 ## 6. Build state
 
-**Done (scaffold phase):** Maven (Spring Boot 3.3.5, Java 21) + Lombok;
-`application.yml` (env-driven datasource, `ddl-auto=validate`, Flyway); JWT auth +
-rotating refresh tokens; RBAC; JPA auditing + `AuditRecorder`; RFC-7807 error
-model; `FieldCrypto`; OpenAPI. Working vertical slices: **auth, center, region,
-producer, rate, incentive, collection** (entity → repository → service →
-controller → DTO, with unit + Testcontainers tests).
+**Done:** Maven (Spring Boot 3.3.5, Java 21) + Lombok; `application.yml`
+(env-driven datasource, `ddl-auto=validate`, Flyway); JWT auth + rotating refresh
+tokens; RBAC; JPA auditing + `AuditRecorder`; RFC-7807 error model; `FieldCrypto`;
+OpenAPI. Working modules (entity → repository → service → controller → DTO, with
+unit + Testcontainers tests): **auth, center, region, producer, rate, incentive,
+collection, deduction, advance, settlement**.
 
-**Not yet built:** `deduction`, `advance`, `settlement`, `payout`,
-`notification`, `report`, `vehicle` modules (SPI interfaces exist); the React
-PWA; Docker/ECS/Terraform; CI; legacy-data migration.
+The settlement engine composes deductions, advance recovery and adjustments
+through the module SPIs (`DeductionLedger`, `AdvanceLedger`,
+`CollectionSettlementGateway`, `BankAccountResolver`), runs the pure
+`SettlementCalculator` + `RoundingRule`, links source records, and drives
+DRAFT → CALCULATED → REVIEWED → APPROVED with a full cancel/recalculate unwind.
+
+**Not yet built:** `payout`, `notification`, `report`, `vehicle` modules (SPI
+interfaces exist); the React PWA; Docker/ECS/Terraform; CI; legacy-data migration.

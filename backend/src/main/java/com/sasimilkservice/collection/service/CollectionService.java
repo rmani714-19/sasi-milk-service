@@ -7,6 +7,7 @@ import com.sasimilkservice.collection.domain.CollectionSyncLog;
 import com.sasimilkservice.collection.domain.MilkCollection;
 import com.sasimilkservice.collection.repository.CollectionSyncLogRepository;
 import com.sasimilkservice.collection.repository.MilkCollectionRepository;
+import com.sasimilkservice.collection.spi.CollectionSettlementGateway;
 import com.sasimilkservice.common.error.BusinessRuleException;
 import com.sasimilkservice.common.error.NotFoundException;
 import com.sasimilkservice.common.security.CurrentUser;
@@ -28,6 +29,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -37,7 +39,7 @@ import java.util.UUID;
  */
 @Service
 @Transactional(readOnly = true)
-public class CollectionService {
+public class CollectionService implements CollectionSettlementGateway {
 
     private final MilkCollectionRepository collections;
     private final CollectionSyncLogRepository syncLog;
@@ -170,6 +172,30 @@ public class CollectionService {
         audit.record("COLLECTION_UPDATED", "MilkCollection", c.getId(),
                 "Collection " + c.getCollectionNumber() + " voided: " + reason);
         return c;
+    }
+
+    // ---- CollectionSettlementGateway ----
+
+    @Override
+    public List<SettlementCollectionRow> unsettledConfirmed(LocalDate periodStart, LocalDate periodEnd) {
+        return collections.findByStatusAndSettlementItemIdIsNullAndCollectionDateBetween(
+                        MilkCollection.Status.CONFIRMED, periodStart, periodEnd).stream()
+                .map(c -> new SettlementCollectionRow(c.getId(), c.getProducerId(), c.getRegionId(),
+                        c.getShift(), c.getMilkQuantityLitres(), c.getBaseAmount(), c.getIncentiveAmount()))
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void attachToSettlementItem(java.util.Collection<Long> collectionIds, long settlementItemId) {
+        collections.findAllById(collectionIds).forEach(c -> c.setSettlementItemId(settlementItemId));
+    }
+
+    @Override
+    @Transactional
+    public void detachFromSettlement(long settlementItemId) {
+        collections.findBySettlementItemId(settlementItemId)
+                .forEach(c -> c.setSettlementItemId(null));
     }
 
     private Map<String, Object> snapshot(RecordCollectionCommand cmd, ProducerView producer,
