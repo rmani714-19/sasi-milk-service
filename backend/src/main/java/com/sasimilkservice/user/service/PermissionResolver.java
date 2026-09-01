@@ -20,8 +20,8 @@ public class PermissionResolver {
         for (Role role : user.getRoles()) {
             perms.addAll(role.getPermissions());
         }
-        if (perms.remove(Permission.ALL_CODE)) {
-            perms.addAll(Permission.allConcrete());
+        if (perms.contains(Permission.ALL_CODE)) {
+            perms.addAll(Permission.allConcrete()); // retain ALL so hasAuthority('ALL') also matches
         }
         return perms;
     }

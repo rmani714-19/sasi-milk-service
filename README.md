@@ -13,10 +13,11 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
 |---|---|
 | DB schema (Flyway `V1`–`V12`) | done — 33 tables, validated on PostgreSQL 17 |
 | Calculation contracts + `RateFormula` / rounding | done + unit-tested |
-| Auth (JWT + refresh rotation), RBAC | scaffolded |
-| Modules: center, region, producer, rate, incentive, collection | scaffolded (entity→repo→service→controller) |
-| Modules: deduction, advance, settlement | implemented — weekly settlement lifecycle (DRAFT→CALCULATED→REVIEWED→APPROVED), advance ledger, cancel/unwind |
-| Modules: payout, notification, report, vehicle | SPI only — not yet implemented |
+| Auth (JWT + refresh rotation), RBAC | done |
+| Modules: center, region, producer, rate, incentive, collection | done (entity→repo→service→controller) |
+| Modules: deduction, advance, settlement | done — weekly settlement lifecycle (DRAFT→CALCULATED→REVIEWED→APPROVED), advance ledger, cancel/unwind |
+| Modules: payout, notification, report, vehicle | done — payout provider abstraction + webhook + retry; notification queue + templates + channels; CSV reports; vehicle GPS stub |
+| **Backend** | **all 17 modules implemented** |
 | Frontend, Docker, CI, AWS | not started |
 
 ## Run locally

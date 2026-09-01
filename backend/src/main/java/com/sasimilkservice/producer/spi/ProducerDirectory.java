@@ -10,6 +10,9 @@ public interface ProducerDirectory {
     /** Resolve by producer number, QR token, or public id — used by milk collection. */
     Optional<ProducerView> resolve(String reference);
 
+    /** Name + contact channels — used by notifications. */
+    Optional<ProducerContact> contact(Long producerId);
+
     record ProducerView(
             Long id,
             String publicId,
@@ -17,5 +20,8 @@ public interface ProducerDirectory {
             String name,
             Long regionId,
             boolean active) {
+    }
+
+    record ProducerContact(Long id, String name, String mobileNumber, String email) {
     }
 }

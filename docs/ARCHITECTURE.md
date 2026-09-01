@@ -187,18 +187,29 @@ overlapping `ts_value` rows, overlapping settlement periods, duplicate payout.
 
 ## 6. Build state
 
-**Done:** Maven (Spring Boot 3.3.5, Java 21) + Lombok; `application.yml`
-(env-driven datasource, `ddl-auto=validate`, Flyway); JWT auth + rotating refresh
-tokens; RBAC; JPA auditing + `AuditRecorder`; RFC-7807 error model; `FieldCrypto`;
-OpenAPI. Working modules (entity → repository → service → controller → DTO, with
-unit + Testcontainers tests): **auth, center, region, producer, rate, incentive,
-collection, deduction, advance, settlement**.
+**Done — the whole backend.** Maven (Spring Boot 3.3.5, Java 21) + Lombok;
+`application.yml` (env-driven datasource, `ddl-auto=validate`, Flyway); JWT auth +
+rotating refresh tokens; RBAC; JPA auditing + `AuditRecorder`; RFC-7807 error
+model; `FieldCrypto`; OpenAPI. All 17 modules implemented (entity → repository →
+service → controller → DTO, with unit + Testcontainers tests):
+**auth, center, region, producer, rate, incentive, collection, deduction,
+advance, settlement, payout, notification, report, vehicle** (+ `audit`, `common`,
+`config`).
 
-The settlement engine composes deductions, advance recovery and adjustments
-through the module SPIs (`DeductionLedger`, `AdvanceLedger`,
-`CollectionSettlementGateway`, `BankAccountResolver`), runs the pure
-`SettlementCalculator` + `RoundingRule`, links source records, and drives
-DRAFT → CALCULATED → REVIEWED → APPROVED with a full cancel/recalculate unwind.
+- **settlement** composes deductions / advance recovery / adjustments via SPIs
+  (`DeductionLedger`, `AdvanceLedger`, `CollectionSettlementGateway`,
+  `BankAccountResolver`), runs the pure `SettlementCalculator` + `RoundingRule`,
+  and drives DRAFT → CALCULATED → REVIEWED → APPROVED with cancel/recalculate unwind.
+- **payout** — `PayoutProvider` abstraction (default `MANUAL`; RazorpayX slots in
+  as a bean), idempotent on `po-<itemId>`, webhook (signature-verified, deduped),
+  retry, manual mark-paid/failed; rolls settlement status
+  PAYOUT_INITIATED → PARTIALLY_PAID → PAID/FAILED.
+- **notification** — `NotificationPublisher` SPI; queue table + `{{mustache}}`
+  templates + per-channel enable; a scheduled sweep delivers each row in its own
+  transaction (`NotificationDispatcher`). In production the queue is SQS.
+- **report** — read model over the module tables (CQRS read side), JSON + CSV
+  (PDF/Excel are a later phase).
+- **vehicle** — Phase 2 stub: CRUD, device mapping, location ingest, online status,
+  `GpsProvider` abstraction (default noop).
 
-**Not yet built:** `payout`, `notification`, `report`, `vehicle` modules (SPI
-interfaces exist); the React PWA; Docker/ECS/Terraform; CI; legacy-data migration.
+**Not yet built:** the React PWA; Docker/ECS/Terraform; CI; legacy-data migration.

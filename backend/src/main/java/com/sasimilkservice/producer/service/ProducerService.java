@@ -187,6 +187,13 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
                 p.getProducerName(), p.getRegionId(), p.getStatus() == Producer.Status.ACTIVE);
     }
 
+    @Override
+    public Optional<ProducerContact> contact(Long producerId) {
+        return producers.findById(producerId)
+                .map(p -> new ProducerContact(p.getId(), p.getProducerName(),
+                        p.getMobileNumber(), p.getEmail()));
+    }
+
     // ---- BankAccountResolver ----
 
     @Override
@@ -194,6 +201,13 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
         return bankAccounts
                 .findByProducerIdAndPrimaryTrueAndStatus(producerId, ProducerBankAccount.Status.ACTIVE)
                 .map(ProducerBankAccount::getId);
+    }
+
+    @Override
+    public Optional<PayoutBankAccount> payoutDetails(Long bankAccountId) {
+        return bankAccounts.findById(bankAccountId)
+                .map(a -> new PayoutBankAccount(a.getId(), a.getAccountHolderName(),
+                        crypto.decrypt(a.getAccountNumberEnc()), a.getIfscCode(), a.getBankName()));
     }
 
     // ---- commands ----

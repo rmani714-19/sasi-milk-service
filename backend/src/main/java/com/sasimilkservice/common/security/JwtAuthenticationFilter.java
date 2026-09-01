@@ -52,8 +52,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 @SuppressWarnings("unchecked")
                 List<String> raw = claims.get("perms", List.class);
                 Set<String> perms = new HashSet<>(raw == null ? List.of() : raw);
-                if (perms.remove(Permission.ALL_CODE)) {
-                    perms.addAll(Permission.allConcrete());
+                if (perms.contains(Permission.ALL_CODE)) {
+                    perms.addAll(Permission.allConcrete()); // keep ALL too, so hasAuthority('ALL') works
                 }
 
                 var authorities = perms.stream()

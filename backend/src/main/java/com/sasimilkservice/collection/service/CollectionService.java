@@ -14,6 +14,8 @@ import com.sasimilkservice.common.security.CurrentUser;
 import com.sasimilkservice.incentive.spi.IncentiveCalculator;
 import com.sasimilkservice.incentive.spi.IncentiveCalculator.IncentiveQuery;
 import com.sasimilkservice.incentive.spi.IncentiveCalculator.IncentiveResult;
+import com.sasimilkservice.notification.spi.NotificationPublisher;
+import com.sasimilkservice.notification.spi.NotificationPublisher.NotificationRequest;
 import com.sasimilkservice.producer.spi.ProducerDirectory;
 import com.sasimilkservice.producer.spi.ProducerDirectory.ProducerView;
 import com.sasimilkservice.rate.spi.RateResolutionService;
@@ -50,6 +52,7 @@ public class CollectionService implements CollectionSettlementGateway {
     private final CollectionAmountCalculator amountCalculator;
     private final CollectionNumberGenerator numberGenerator;
     private final AuditRecorder audit;
+    private final NotificationPublisher notifications;
 
     public CollectionService(MilkCollectionRepository collections,
                              CollectionSyncLogRepository syncLog,
@@ -59,7 +62,8 @@ public class CollectionService implements CollectionSettlementGateway {
                              IncentiveCalculator incentiveCalculator,
                              CollectionAmountCalculator amountCalculator,
                              CollectionNumberGenerator numberGenerator,
-                             AuditRecorder audit) {
+                             AuditRecorder audit,
+                             NotificationPublisher notifications) {
         this.collections = collections;
         this.syncLog = syncLog;
         this.producers = producers;
@@ -69,6 +73,7 @@ public class CollectionService implements CollectionSettlementGateway {
         this.amountCalculator = amountCalculator;
         this.numberGenerator = numberGenerator;
         this.audit = audit;
+        this.notifications = notifications;
     }
 
     public Page<MilkCollection> search(Long producerId, LocalDate date, String shift,
@@ -153,6 +158,16 @@ public class CollectionService implements CollectionSettlementGateway {
         writeSyncLog(cmd, clientTxnId, CollectionSyncLog.Outcome.APPLIED, c.getId(), null);
         audit.record("COLLECTION_CREATED", "MilkCollection", c.getId(),
                 "Collection " + c.getCollectionNumber() + " for producer " + producer.producerNumber());
+
+        Map<String, Object> notifyData = new HashMap<>();
+        notifyData.put("producerName", producer.name());
+        notifyData.put("shift", c.getShift());
+        notifyData.put("litres", c.getMilkQuantityLitres());
+        notifyData.put("amount", c.getNetAmount());
+        notifyData.put("collectionNumber", c.getCollectionNumber());
+        notifications.publish(new NotificationRequest("COLLECTION_CREATED", "COLLECTION_CREATED",
+                producer.id(), null, "MilkCollection", c.getId(), notifyData));
+
         return new RecordResult(c, false);
     }
 

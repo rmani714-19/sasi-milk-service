@@ -24,6 +24,7 @@ import com.sasimilkservice.settlement.domain.SettlementItem;
 import com.sasimilkservice.settlement.repository.SettlementAdjustmentRepository;
 import com.sasimilkservice.settlement.repository.SettlementItemRepository;
 import com.sasimilkservice.settlement.repository.SettlementRepository;
+import com.sasimilkservice.settlement.spi.SettlementPayoutGateway;
 import com.sasimilkservice.settlement.service.SettlementCalculator.CollectionContribution;
 import com.sasimilkservice.settlement.service.SettlementCalculator.SettlementLineInput;
 import com.sasimilkservice.settlement.service.SettlementCalculator.SettlementLineResult;
@@ -49,7 +50,7 @@ import java.util.stream.Collectors;
  */
 @Service
 @Transactional(readOnly = true)
-public class SettlementService {
+public class SettlementService implements SettlementPayoutGateway {
 
     private final SettlementRepository settlements;
     private final SettlementItemRepository items;
@@ -292,6 +293,69 @@ public class SettlementService {
                 "%s %s for producer %d on %s (recalculate to apply)".formatted(
                         type, amount, producerId, s.getSettlementNumber()));
         return a;
+    }
+
+    // ---- SettlementPayoutGateway ----
+
+    @Override
+    public ApprovedSettlement requireApprovedForPayout(long settlementId) {
+        Settlement s = require(settlementId);
+        if (s.getStatus() != Settlement.Status.APPROVED
+                && s.getStatus() != Settlement.Status.PAYOUT_INITIATED
+                && s.getStatus() != Settlement.Status.PARTIALLY_PAID
+                && s.getStatus() != Settlement.Status.FAILED) {
+            throw new BusinessRuleException(
+                    "Settlement is " + s.getStatus() + "; it must be APPROVED before payout");
+        }
+        List<PayableItem> payable = items.findBySettlementIdOrderByProducerIdAsc(s.getId()).stream()
+                .map(i -> new PayableItem(i.getId(), i.getProducerId(), i.getBankAccountId(),
+                        i.getNetPayable(),
+                        ItemPaymentStatus.valueOf(i.getPaymentStatus().name())))
+                .toList();
+        return new ApprovedSettlement(s.getId(), s.getSettlementNumber(), payable);
+    }
+
+    @Override
+    @Transactional
+    public void markPayoutInitiated(long settlementId) {
+        Settlement s = require(settlementId);
+        if (s.getStatus() == Settlement.Status.APPROVED) {
+            s.setStatus(Settlement.Status.PAYOUT_INITIATED);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void updateItemPaymentStatus(long settlementItemId, ItemPaymentStatus status, String reference) {
+        SettlementItem item = items.findById(settlementItemId)
+                .orElseThrow(() -> NotFoundException.of("SettlementItem", settlementItemId));
+        item.setPaymentStatus(SettlementItem.PaymentStatus.valueOf(status.name()));
+        if (reference != null) {
+            item.setPaymentReference(reference);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void refreshSettlementPaymentStatus(long settlementId) {
+        Settlement s = require(settlementId);
+        List<SettlementItem> all = items.findBySettlementIdOrderByProducerIdAsc(settlementId);
+        if (all.isEmpty()) {
+            return;
+        }
+        long success = all.stream().filter(i -> i.getPaymentStatus() == SettlementItem.PaymentStatus.SUCCESS).count();
+        long failed = all.stream().filter(i -> i.getPaymentStatus() == SettlementItem.PaymentStatus.FAILED).count();
+        long done = success + failed;
+
+        if (success == all.size()) {
+            s.setStatus(Settlement.Status.PAID);
+        } else if (done == all.size()) {
+            s.setStatus(Settlement.Status.FAILED);
+        } else if (success > 0 || failed > 0) {
+            s.setStatus(Settlement.Status.PARTIALLY_PAID);
+        } else {
+            s.setStatus(Settlement.Status.PAYOUT_INITIATED);
+        }
     }
 
     // ---- internals ----
