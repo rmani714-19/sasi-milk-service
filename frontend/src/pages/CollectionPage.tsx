@@ -29,13 +29,20 @@ import type { CenterSettings, Collection, Page, Producer, RatePreview } from '..
 
 type Shift = 'MORNING' | 'EVENING';
 
+/** MORNING for 6am–12pm, EVENING for 1pm onward (per center operating hours). */
+function shiftForNow(d = new Date()): Shift {
+  const h = d.getHours();
+  return h >= 6 && h < 13 ? 'MORNING' : 'EVENING';
+}
+
 export function CollectionPage() {
   const qc = useQueryClient();
   const toast = useToast();
   const producerRef = useRef<HTMLInputElement>(null);
+  const shiftPickedManually = useRef(false);
 
   const [date, setDate] = useState(today());
-  const [shift, setShift] = useState<Shift>(new Date().getHours() < 12 ? 'MORNING' : 'EVENING');
+  const [shift, setShift] = useState<Shift>(shiftForNow());
   const [ref, setRef] = useState('');
   const [producer, setProducer] = useState<Producer | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -64,6 +71,17 @@ export function CollectionPage() {
     queryFn: async () =>
       (await api.get<Page<Collection>>('/collections', { params: { date, size: 20 } })).data,
   });
+
+  // auto-follow the clock (morning/evening) until the operator picks a shift manually
+  useEffect(() => {
+    if (shiftPickedManually.current || date !== today()) return;
+    const tick = () => {
+      if (!shiftPickedManually.current && date === today()) setShift(shiftForNow());
+    };
+    tick();
+    const t = setInterval(tick, 60_000);
+    return () => clearInterval(t);
+  }, [date]);
 
   async function resolveProducer() {
     const q = ref.trim();
@@ -186,7 +204,12 @@ export function CollectionPage() {
                   exclusive
                   color="primary"
                   value={shift}
-                  onChange={(_, v: Shift | null) => v && setShift(v)}
+                  onChange={(_, v: Shift | null) => {
+                    if (v) {
+                      shiftPickedManually.current = true;
+                      setShift(v);
+                    }
+                  }}
                   fullWidth
                 >
                   <ToggleButton value="MORNING">Morning</ToggleButton>
