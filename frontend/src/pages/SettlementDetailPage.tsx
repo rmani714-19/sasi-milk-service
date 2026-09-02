@@ -106,7 +106,7 @@ export function SettlementDetailPage() {
 
             <Grid container spacing={2} sx={{ mb: 3 }}>
               {[
-                ['Producers', String(s.totalProducers)],
+                ['Farmers', String(s.totalProducers)],
                 ['Total litres', litres(s.totalLitres)],
                 ['Milk amount', money(s.totalMilkAmount)],
                 ['Incentive', money(s.totalIncentive)],
@@ -129,13 +129,13 @@ export function SettlementDetailPage() {
             </Grid>
 
             <Typography variant="h6" sx={{ mb: 1 }}>
-              Producer lines
+              Farmer lines
             </Typography>
             <Card sx={{ mb: 4, overflowX: 'auto' }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Producer</TableCell>
+                    <TableCell>Farmer</TableCell>
                     <TableCell align="right">Litres</TableCell>
                     <TableCell align="right">Gross</TableCell>
                     <TableCell align="right">Deduction</TableCell>
@@ -182,7 +182,7 @@ export function SettlementDetailPage() {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Producer</TableCell>
+                        <TableCell>Farmer</TableCell>
                         <TableCell align="right">Amount</TableCell>
                         <TableCell>Provider</TableCell>
                         <TableCell>Status</TableCell>

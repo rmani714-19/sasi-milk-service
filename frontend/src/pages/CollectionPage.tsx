@@ -218,7 +218,7 @@ export function CollectionPage() {
               </Stack>
 
               <TextField
-                label="Producer number / QR"
+                label="Farmer number / QR"
                 inputRef={producerRef}
                 value={ref}
                 onChange={(e) => {
@@ -234,7 +234,7 @@ export function CollectionPage() {
                     ? `${producer.producerName}${producer.regionId ? '' : ' — no region set'}`
                     : notFound
                       ? 'Not found — will be resolved on the server when you save'
-                      : 'Scan the QR or type the number, then press Enter'
+                      : 'Scan the QR or type the farmer number, then press Enter'
                 }
                 FormHelperTextProps={{ sx: { color: producer ? 'success.main' : undefined } }}
               />
@@ -347,7 +347,7 @@ export function CollectionPage() {
             <TableHead>
               <TableRow>
                 <TableCell>No.</TableCell>
-                <TableCell>Producer</TableCell>
+                <TableCell>Farmer</TableCell>
                 <TableCell align="right">Litres</TableCell>
                 <TableCell align="right">Net</TableCell>
                 <TableCell align="right" />

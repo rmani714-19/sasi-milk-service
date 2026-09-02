@@ -93,7 +93,7 @@ export function DashboardPage() {
           <Stat label="Amount today" value={money(row?.totalAmount)} hint={`avg ₹${(row?.averageRate ?? 0).toFixed(2)}/L`} />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
-          <Stat label="Producers today" value={String(row?.producerCount ?? 0)} />
+          <Stat label="Farmers today" value={String(row?.producerCount ?? 0)} />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
           <Stat

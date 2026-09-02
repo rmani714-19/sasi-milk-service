@@ -55,7 +55,7 @@ export function RateChartsPage() {
   return (
     <>
       <PageHeader
-        title="Rate Chart"
+        title="Milk Rate"
         subtitle="Rate/litre = (FAT% + SNF%) × TS value ÷ 100"
         action={
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>

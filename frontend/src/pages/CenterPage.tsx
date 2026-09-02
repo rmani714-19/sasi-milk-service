@@ -43,7 +43,7 @@ export function CenterPage() {
 
   return (
     <>
-      <PageHeader title="My Center" />
+      <PageHeader title="Centre" />
       <QueryBoundary query={q}>
         {() =>
           form && (

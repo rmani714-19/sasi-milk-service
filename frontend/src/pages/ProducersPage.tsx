@@ -43,7 +43,7 @@ export function ProducersPage() {
   const create = useMutation({
     mutationFn: async (body: Record<string, unknown>) => (await api.post('/producers', body)).data,
     onSuccess: () => {
-      toast.success('Producer added');
+      toast.success('Farmer added');
       qc.invalidateQueries({ queryKey: ['producers'] });
       setOpen(false);
     },
@@ -55,17 +55,17 @@ export function ProducersPage() {
   return (
     <>
       <PageHeader
-        title="Producers"
+        title="Farmers"
         action={
           can('MANAGE_PRODUCERS') && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
-              Add producer
+              Add farmer
             </Button>
           )
         }
       />
       <TextField
-        placeholder="Search by name or number"
+        placeholder="Search farmers by name or number"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         sx={{ mb: 2, maxWidth: 360 }}
@@ -181,14 +181,14 @@ function ProducerDialog({
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onExited: () => setF(BLANK) }}>
-      <DialogTitle>Add producer</DialogTitle>
+      <DialogTitle>Add farmer</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
           <SectionLabel>Identity</SectionLabel>
           <Typography variant="caption" color="text.secondary" sx={{ mt: -0.5 }}>
-            Producer number is assigned automatically on save.
+            Farmer number is assigned automatically on save.
           </Typography>
-          <TextField label="Producer name" value={f.producerName} onChange={set('producerName')} autoFocus required />
+          <TextField label="Farmer name" value={f.producerName} onChange={set('producerName')} autoFocus required />
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
             <TextField label="Aadhaar number (12 digits)" value={f.aadhaarNumber} onChange={set('aadhaarNumber')} inputProps={{ inputMode: 'numeric', maxLength: 14 }} />
             <TextField select label="Region" value={f.regionId} onChange={set('regionId')}>

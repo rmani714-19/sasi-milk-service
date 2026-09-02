@@ -48,7 +48,7 @@ export function SettlementsPage() {
   return (
     <>
       <PageHeader
-        title="Weekly Settlement"
+        title="Payments"
         action={
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
             New settlement
@@ -63,7 +63,7 @@ export function SettlementsPage() {
                 <TableRow>
                   <TableCell>Number</TableCell>
                   <TableCell>Period</TableCell>
-                  <TableCell align="right">Producers</TableCell>
+                  <TableCell align="right">Farmers</TableCell>
                   <TableCell align="right">Litres</TableCell>
                   <TableCell align="right">Net payable</TableCell>
                   <TableCell>Status</TableCell>
