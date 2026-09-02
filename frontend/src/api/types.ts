@@ -172,6 +172,36 @@ export interface VehicleStatus {
   lastFixAt?: string;
 }
 
+export interface NotificationChannel {
+  channel: string;
+  enabled: boolean;
+  provider?: string;
+  senderId?: string;
+}
+
+export interface NotificationTemplateItem {
+  id: number;
+  code: string;
+  channel: string;
+  locale: string;
+  subject?: string;
+  body: string;
+  providerTemplateId?: string;
+  status: string;
+}
+
+export interface NotificationLogItem {
+  id: number;
+  eventType: string;
+  channel: string;
+  recipient: string;
+  producerId?: number;
+  status: string;
+  attemptCount: number;
+  renderedBody?: string;
+  sentAt?: string;
+}
+
 export interface CenterSettings {
   centerName: string;
   ownerName?: string;

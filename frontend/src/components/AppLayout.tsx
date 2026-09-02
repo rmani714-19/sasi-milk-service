@@ -27,6 +27,7 @@ import RemoveCircleIcon from '@mui/icons-material/RemoveCircleOutline';
 import SavingsIcon from '@mui/icons-material/Savings';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import NotificationsIcon from '@mui/icons-material/NotificationsActive';
 import StoreIcon from '@mui/icons-material/Store';
 import { useAuth } from '../lib/auth';
 import { usePendingSync } from '../lib/usePendingSync';
@@ -51,6 +52,7 @@ const NAV: NavItem[] = [
   { to: '/settlements', label: 'Settlement', icon: <ReceiptLongIcon />, perm: 'GENERATE_SETTLEMENT' },
   { to: '/reports', label: 'Reports', icon: <AssessmentIcon />, perm: 'VIEW_REPORTS' },
   { to: '/vehicles', label: 'Vehicles', icon: <LocalShippingIcon />, perm: 'VIEW_DASHBOARD' },
+  { to: '/notifications', label: 'Notifications', icon: <NotificationsIcon />, perm: 'ALL' },
   { to: '/center', label: 'My Center', icon: <StoreIcon />, perm: 'MANAGE_RATES' },
 ];
 

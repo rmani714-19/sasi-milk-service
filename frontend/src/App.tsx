@@ -15,6 +15,7 @@ import { SettlementsPage } from './pages/SettlementsPage';
 import { SettlementDetailPage } from './pages/SettlementDetailPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { VehiclesPage } from './pages/VehiclesPage';
+import { NotificationsPage } from './pages/NotificationsPage';
 import { CenterPage } from './pages/CenterPage';
 
 export function App() {
@@ -39,6 +40,7 @@ export function App() {
           <Route path="settlements/:id" element={<SettlementDetailPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="vehicles" element={<VehiclesPage />} />
+          <Route path="notifications" element={<NotificationsPage />} />
           <Route path="center" element={<CenterPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
