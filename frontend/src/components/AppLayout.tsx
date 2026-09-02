@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, Outlet, useLocation } from 'react-router-dom';
 import AppBar from '@mui/material/AppBar';
+import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
@@ -13,7 +14,10 @@ import ListItemText from '@mui/material/ListItemText';
 import Toolbar from '@mui/material/Toolbar';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import MenuIcon from '@mui/icons-material/Menu';
+import MenuOpenIcon from '@mui/icons-material/MenuOpen';
 import LogoutIcon from '@mui/icons-material/Logout';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
@@ -35,7 +39,9 @@ import { useAuth } from '../lib/auth';
 import { useAppTheme } from '../lib/appTheme';
 import { usePendingSync } from '../lib/usePendingSync';
 
-const DRAWER_WIDTH = 236;
+const NAV_FULL = 240;
+const NAV_MINI = 72;
+const COLLAPSE_KEY = 'sasi.navCollapsed';
 
 interface NavItem {
   to: string;
@@ -59,39 +65,70 @@ const NAV: NavItem[] = [
   { to: '/center', label: 'Centre', icon: <StoreIcon />, perm: 'MANAGE_RATES' },
 ];
 
+function readCollapsed(): boolean | null {
+  try {
+    const v = localStorage.getItem(COLLAPSE_KEY);
+    return v == null ? null : v === '1';
+  } catch {
+    return null;
+  }
+}
+
 export function AppLayout() {
   const { user, logout, can } = useAuth();
   const { mode, auto, toggle } = useAppTheme();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const theme = useTheme();
   const location = useLocation();
   const { pending, online, syncing, sync } = usePendingSync();
 
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm')); // < 600px → overlay drawer
+  const isLarge = useMediaQuery(theme.breakpoints.up('lg')); // ≥ 1200px → expanded by default
+
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsed() ?? true);
+
+  // first run with no saved preference: expand on large screens, rail on tablet
+  useEffect(() => {
+    if (readCollapsed() == null) setCollapsed(!isLarge);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLarge]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed]);
+
   useEffect(() => setMobileOpen(false), [location.pathname]);
 
-  const items = NAV.filter((n) => !n.perm || can(n.perm));
+  const items = useMemo(() => NAV.filter((n) => !n.perm || can(n.perm)), [can]);
+  const permWidth = collapsed ? NAV_MINI : NAV_FULL;
+  const currentLabel =
+    items.find((n) => (n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to)))?.label ?? '';
 
-  const brandMark = (
-    <>
-      <Box
-        component="img"
-        src="/logo.png"
-        alt="Sasi Dairy Farm"
-        onError={(e) => {
-          (e.currentTarget as HTMLImageElement).style.display = 'none';
-          (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty('display', 'inline');
-        }}
-        sx={{ height: 34, width: 'auto', display: 'block' }}
-      />
-      <Typography variant="subtitle2" color="inherit" sx={{ display: 'none', fontWeight: 700 }}>
-        SASI MILK SERVICE
-      </Typography>
-    </>
-  );
+  const initials = (user?.fullName ?? '?')
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((s) => s[0]?.toUpperCase())
+    .join('');
 
-  const drawer = (
+  const onMenuClick = () => (isMobile ? setMobileOpen(true) : setCollapsed((c) => !c));
+
+  const drawerContent = (mini: boolean) => (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* pinned: stays put while the nav list scrolls */}
-      <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, flexShrink: 0 }}>
+      <Box
+        sx={{
+          minHeight: 64,
+          px: mini ? 0 : 2,
+          py: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
         <Box
           component="img"
           src="/logo.png"
@@ -100,35 +137,53 @@ export function AppLayout() {
             (e.currentTarget as HTMLImageElement).style.display = 'none';
             (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty('display', 'inline');
           }}
-          sx={{ height: 52, width: 'auto', display: 'block' }}
+          sx={{ height: mini ? 40 : 52, width: 'auto', display: 'block' }}
         />
         <Typography color="primary" sx={{ display: 'none', fontWeight: 700, lineHeight: 1.1 }}>
-          SASI MILK SERVICE
+          SASI
         </Typography>
       </Box>
       <Divider />
-      <List sx={{ flex: 1, minHeight: 0, overflowY: 'auto', py: 1 }}>
-        {items.map((n) => (
-          <ListItemButton
-            key={n.to}
-            component={RouterLink}
-            to={n.to}
-            selected={n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to)}
-            sx={{ borderRadius: 2, mx: 1, mb: 0.5 }}
-          >
-            <ListItemIcon sx={{ minWidth: 40 }}>{n.icon}</ListItemIcon>
-            <ListItemText primary={n.label} />
-          </ListItemButton>
-        ))}
+      <List sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', py: 1 }}>
+        {items.map((n) => {
+          const selected = n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to);
+          return (
+            <Tooltip key={n.to} title={mini ? n.label : ''} placement="right" arrow>
+              <ListItemButton
+                component={RouterLink}
+                to={n.to}
+                selected={selected}
+                sx={{
+                  borderRadius: 2,
+                  mx: mini ? 0.75 : 1,
+                  mb: 0.5,
+                  minHeight: 46,
+                  justifyContent: mini ? 'center' : 'flex-start',
+                  px: mini ? 1 : 2,
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 0, mr: mini ? 0 : 2, justifyContent: 'center' }}>
+                  {n.icon}
+                </ListItemIcon>
+                {!mini && <ListItemText primary={n.label} />}
+              </ListItemButton>
+            </Tooltip>
+          );
+        })}
       </List>
       <Divider />
-      <Box sx={{ p: 2, flexShrink: 0 }}>
-        <Typography variant="body2" fontWeight={600}>
-          {user?.fullName}
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          {user?.username}
-        </Typography>
+      <Box sx={{ p: mini ? 1 : 2, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 1.5, justifyContent: mini ? 'center' : 'flex-start' }}>
+        <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: 13 }}>{initials}</Avatar>
+        {!mini && (
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="body2" fontWeight={600} noWrap>
+              {user?.fullName}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {user?.username}
+            </Typography>
+          </Box>
+        )}
       </Box>
     </Box>
   );
@@ -139,16 +194,27 @@ export function AppLayout() {
         position="fixed"
         color="inherit"
         elevation={0}
-        sx={{ width: { md: `calc(100% - ${DRAWER_WIDTH}px)` }, ml: { md: `${DRAWER_WIDTH}px` }, borderBottom: 1, borderColor: 'divider' }}
+        sx={{
+          width: { sm: `calc(100% - ${permWidth}px)` },
+          ml: { sm: `${permWidth}px` },
+          borderBottom: 1,
+          borderColor: 'divider',
+          transition: theme.transitions.create(['width', 'margin'], { duration: theme.transitions.duration.shorter }),
+        }}
       >
         <Toolbar>
-          <IconButton edge="start" onClick={() => setMobileOpen(true)} sx={{ mr: 1, display: { md: 'none' } }}>
-            <MenuIcon />
+          <IconButton edge="start" onClick={onMenuClick} sx={{ mr: 1 }} aria-label="toggle navigation">
+            {isMobile || collapsed ? <MenuIcon /> : <MenuOpenIcon />}
           </IconButton>
-          {/* small, always visible, fixed with the top bar */}
-          <Box sx={{ display: { xs: 'flex', md: 'none' }, alignItems: 'center', mr: 1.5 }}>{brandMark}</Box>
+          <Box
+            component="img"
+            src="/logo.png"
+            alt=""
+            onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+            sx={{ display: { xs: 'block', sm: 'none' }, height: 30, mr: 1 }}
+          />
           <Typography variant="h6" sx={{ flex: 1 }} noWrap>
-            {items.find((n) => (n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to)))?.label ?? ''}
+            {currentLabel}
           </Typography>
 
           {pending > 0 && (
@@ -157,15 +223,13 @@ export function AppLayout() {
                 size="small"
                 color={online ? 'warning' : 'default'}
                 icon={online ? <CloudDoneIcon /> : <CloudOffIcon />}
-                label={syncing ? 'Syncing…' : `${pending} pending`}
+                label={syncing ? 'Syncing…' : `${pending}`}
                 onClick={() => online && sync()}
                 sx={{ mr: 1 }}
               />
             </Tooltip>
           )}
-          {pending === 0 && !online && (
-            <Chip size="small" icon={<CloudOffIcon />} label="Offline" sx={{ mr: 1 }} />
-          )}
+          {pending === 0 && !online && <Chip size="small" icon={<CloudOffIcon />} label="Offline" sx={{ mr: 1 }} />}
 
           <Tooltip title={`${mode === 'morning' ? 'Morning' : 'Evening'} theme${auto ? ' (auto)' : ''} — tap to switch`}>
             <IconButton color="inherit" onClick={toggle}>
@@ -180,26 +244,48 @@ export function AppLayout() {
         </Toolbar>
       </AppBar>
 
-      <Box component="nav" sx={{ width: { md: DRAWER_WIDTH }, flexShrink: { md: 0 } }}>
+      <Box component="nav" sx={{ width: { sm: permWidth }, flexShrink: { sm: 0 } }}>
+        {/* mobile: overlay drawer, sensible width, closes on selection */}
         <Drawer
           variant="temporary"
           open={mobileOpen}
           onClose={() => setMobileOpen(false)}
           ModalProps={{ keepMounted: true }}
-          sx={{ display: { xs: 'block', md: 'none' }, '& .MuiDrawer-paper': { width: DRAWER_WIDTH } }}
+          sx={{
+            display: { xs: 'block', sm: 'none' },
+            '& .MuiDrawer-paper': { width: 'min(280px, 82vw)' },
+          }}
         >
-          {drawer}
+          {drawerContent(false)}
         </Drawer>
+        {/* tablet + desktop: permanent, collapsible to an icon rail */}
         <Drawer
           variant="permanent"
           open
-          sx={{ display: { xs: 'none', md: 'block' }, '& .MuiDrawer-paper': { width: DRAWER_WIDTH, borderRight: 1, borderColor: 'divider' } }}
+          sx={{
+            display: { xs: 'none', sm: 'block' },
+            '& .MuiDrawer-paper': {
+              width: permWidth,
+              overflowX: 'hidden',
+              borderRight: 1,
+              borderColor: 'divider',
+              transition: theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
+            },
+          }}
         >
-          {drawer}
+          {drawerContent(collapsed)}
         </Drawer>
       </Box>
 
-      <Box component="main" sx={{ flexGrow: 1, width: { md: `calc(100% - ${DRAWER_WIDTH}px)` }, p: { xs: 2, sm: 3 } }}>
+      <Box
+        component="main"
+        sx={{
+          flexGrow: 1,
+          width: { sm: `calc(100% - ${permWidth}px)` },
+          p: { xs: 2, sm: 3 },
+          transition: theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
+        }}
+      >
         <Toolbar />
         <Outlet />
       </Box>
