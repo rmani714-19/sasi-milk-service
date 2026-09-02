@@ -3,7 +3,6 @@ import { useParams } from 'react-router-dom';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -22,7 +21,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useRegions } from '../api/common';
 import { PageHeader } from '../components/PageHeader';
-import { QueryBoundary, useToast } from '../components/ui';
+import { FormSection } from '../components/FormSection';
+import { StatusChip } from '../components/StatusChip';
+import { ConfirmDialog, QueryBoundary, SectionTitle, useToast } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import type { BankAccount, Producer } from '../api/types';
 
@@ -34,6 +35,8 @@ export function ProducerDetailPage() {
   const [bankOpen, setBankOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editBank, setEditBank] = useState<BankAccount | null>(null);
+  const [confirmDeactivate, setConfirmDeactivate] = useState(false);
+  const [confirmBank, setConfirmBank] = useState<BankAccount | null>(null);
   const regions = useRegions();
 
   const producer = useQuery({
@@ -50,6 +53,7 @@ export function ProducerDetailPage() {
     mutationFn: async () => (await api.post(`/producers/${id}/deactivate`)).data,
     onSuccess: () => {
       toast.success('Producer deactivated');
+      setConfirmDeactivate(false);
       qc.invalidateQueries({ queryKey: ['producer', id] });
     },
     onError: toast.fromError,
@@ -67,8 +71,7 @@ export function ProducerDetailPage() {
   });
 
   const edit = useMutation({
-    mutationFn: async (body: Record<string, unknown>) =>
-      (await api.put(`/producers/${id}`, body)).data,
+    mutationFn: async (body: Record<string, unknown>) => (await api.put(`/producers/${id}`, body)).data,
     onSuccess: () => {
       toast.success('Producer updated');
       qc.invalidateQueries({ queryKey: ['producer', id] });
@@ -104,6 +107,7 @@ export function ProducerDetailPage() {
       (await api.post(`/producers/${id}/bank-accounts/${accountId}/deactivate`)).data,
     onSuccess: () => {
       toast.success('Bank account deactivated');
+      setConfirmBank(null);
       bankInvalidate();
     },
     onError: toast.fromError,
@@ -123,7 +127,7 @@ export function ProducerDetailPage() {
                     Edit
                   </Button>
                   {p.status === 'ACTIVE' && (
-                    <Button color="error" onClick={() => deactivate.mutate()} disabled={deactivate.isPending}>
+                    <Button color="error" variant="outlined" onClick={() => setConfirmDeactivate(true)}>
                       Deactivate
                     </Button>
                   )}
@@ -135,22 +139,22 @@ export function ProducerDetailPage() {
             <Grid size={{ xs: 12, md: 5 }}>
               <Card>
                 <CardContent>
-                  <Stack spacing={1}>
-                    <Row label="Status" value={<Chip size="small" label={p.status} color={p.status === 'ACTIVE' ? 'success' : 'default'} />} />
+                  <Stack spacing={1.25}>
+                    <Row label="Status" value={<StatusChip status={p.status} />} />
                     <Row label="Mobile" value={p.mobileNumber ?? '—'} />
                     <Row label="Alternate mobile" value={p.alternateMobile ?? '—'} />
                     <Row label="GPay / UPI" value={p.upiId ?? '—'} />
                     <Row label="Email" value={p.email ?? '—'} />
                     <Row label="Aadhaar" value={p.aadhaarMasked ?? '—'} />
                     <Row label="Address" value={p.address ?? '—'} />
-                    <Row label="QR token" value={<code>{p.qrCode}</code>} />
+                    <Row label="QR token" value={<Typography component="code" sx={{ fontSize: 12 }}>{p.qrCode}</Typography>} />
                   </Stack>
                 </CardContent>
               </Card>
             </Grid>
             <Grid size={{ xs: 12, md: 7 }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                <Typography variant="h6">Bank accounts</Typography>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
+                <SectionTitle sx={{ mb: 0 }}>Bank accounts</SectionTitle>
                 {can('MANAGE_PRODUCERS') && (
                   <Button size="small" variant="outlined" onClick={() => setBankOpen(true)}>
                     Add account
@@ -173,31 +177,33 @@ export function ProducerDetailPage() {
                         </TableHead>
                         <TableBody>
                           {d.map((b) => (
-                            <TableRow key={b.id} sx={{ opacity: b.status === 'ACTIVE' ? 1 : 0.5 }}>
+                            <TableRow key={b.id} sx={{ opacity: b.status === 'ACTIVE' ? 1 : 0.55 }}>
                               <TableCell>{b.accountHolderName}</TableCell>
                               <TableCell>{b.accountNumberMasked}</TableCell>
                               <TableCell>{b.ifscCode}</TableCell>
                               <TableCell>
                                 {b.primary ? (
-                                  <Chip size="small" color="primary" label="Primary" />
+                                  <StatusChip status="PRIMARY" tone="brand" label="Primary" />
                                 ) : (
-                                  <Chip size="small" variant="outlined" label={b.status} />
+                                  <StatusChip status={b.status} />
                                 )}
                               </TableCell>
                               <TableCell align="right">
-                                <Button size="small" onClick={() => setEditBank(b)}>
-                                  Edit
-                                </Button>
-                                {b.status === 'ACTIVE' && !b.primary && (
-                                  <Button size="small" onClick={() => setPrimary.mutate(b.id)}>
-                                    Make primary
+                                <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                                  <Button size="small" onClick={() => setEditBank(b)}>
+                                    Edit
                                   </Button>
-                                )}
-                                {b.status === 'ACTIVE' && (
-                                  <Button size="small" color="error" onClick={() => deactivateBank.mutate(b.id)}>
-                                    Deactivate
-                                  </Button>
-                                )}
+                                  {b.status === 'ACTIVE' && !b.primary && (
+                                    <Button size="small" onClick={() => setPrimary.mutate(b.id)}>
+                                      Make primary
+                                    </Button>
+                                  )}
+                                  {b.status === 'ACTIVE' && (
+                                    <Button size="small" color="error" onClick={() => setConfirmBank(b)}>
+                                      Deactivate
+                                    </Button>
+                                  )}
+                                </Stack>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -235,6 +241,27 @@ export function ProducerDetailPage() {
             busy={edit.isPending}
             onClose={() => setEditOpen(false)}
             onSubmit={(body) => edit.mutate(body)}
+          />
+
+          <ConfirmDialog
+            open={confirmDeactivate}
+            title="Deactivate producer?"
+            message={`${p.producerName} (${p.producerNumber}) will stop appearing for new collections and settlements. Existing records are kept.`}
+            confirmLabel="Deactivate"
+            destructive
+            busy={deactivate.isPending}
+            onConfirm={() => deactivate.mutate()}
+            onClose={() => setConfirmDeactivate(false)}
+          />
+          <ConfirmDialog
+            open={!!confirmBank}
+            title="Deactivate bank account?"
+            message={`Account ${confirmBank?.accountNumberMasked ?? ''} will no longer be used for payouts.`}
+            confirmLabel="Deactivate"
+            destructive
+            busy={deactivateBank.isPending}
+            onConfirm={() => confirmBank && deactivateBank.mutate(confirmBank.id)}
+            onClose={() => setConfirmBank(null)}
           />
         </>
       )}
@@ -276,35 +303,37 @@ function EditProducerDialog({
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>Edit {producer.producerNumber}</DialogTitle>
       <DialogContent dividers>
-        <Stack spacing={2}>
-          <TextField label="Producer name" value={f.producerName} onChange={set('producerName')} required />
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField label="Mobile number" value={f.mobileNumber} onChange={set('mobileNumber')} inputProps={{ inputMode: 'numeric' }} />
-            <TextField label="Alternate mobile" value={f.alternateMobile} onChange={set('alternateMobile')} inputProps={{ inputMode: 'numeric' }} />
-          </Stack>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField label="GPay / UPI ID" value={f.upiId} onChange={set('upiId')} />
-            <TextField label="Email" value={f.email} onChange={set('email')} />
-          </Stack>
-          <TextField
-            label="Aadhaar number"
-            value={f.aadhaarNumber}
-            onChange={set('aadhaarNumber')}
-            inputProps={{ inputMode: 'numeric', maxLength: 14 }}
-            helperText={producer.aadhaarMasked ? `Current: ${producer.aadhaarMasked} — leave blank to keep` : 'Leave blank if not applicable'}
-          />
-          <TextField label="Address" value={f.address} onChange={set('address')} multiline minRows={2} />
-          <TextField select label="Region" value={f.regionId} onChange={set('regionId')}>
-            <MenuItem value="">— none —</MenuItem>
-            {regions.map((r) => (
-              <MenuItem key={r.id} value={r.id}>
-                {r.code} · {r.name}
-              </MenuItem>
-            ))}
-          </TextField>
-          {regionChanged && (
-            <TextField label="Reason for region change" value={f.regionChangeReason} onChange={set('regionChangeReason')} />
-          )}
+        <Stack spacing={3}>
+          <FormSection title="Details">
+            <TextField label="Producer name" value={f.producerName} onChange={set('producerName')} required />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField label="Mobile number" value={f.mobileNumber} onChange={set('mobileNumber')} inputProps={{ inputMode: 'numeric' }} />
+              <TextField label="Alternate mobile" value={f.alternateMobile} onChange={set('alternateMobile')} inputProps={{ inputMode: 'numeric' }} />
+            </Stack>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField label="GPay / UPI ID" value={f.upiId} onChange={set('upiId')} />
+              <TextField label="Email" value={f.email} onChange={set('email')} />
+            </Stack>
+            <TextField
+              label="Aadhaar number"
+              value={f.aadhaarNumber}
+              onChange={set('aadhaarNumber')}
+              inputProps={{ inputMode: 'numeric', maxLength: 14 }}
+              helperText={producer.aadhaarMasked ? `Current: ${producer.aadhaarMasked} — leave blank to keep` : 'Leave blank if not applicable'}
+            />
+            <TextField label="Address" value={f.address} onChange={set('address')} multiline minRows={2} />
+            <TextField select label="Region" value={f.regionId} onChange={set('regionId')}>
+              <MenuItem value="">— none —</MenuItem>
+              {regions.map((r) => (
+                <MenuItem key={r.id} value={r.id}>
+                  {r.code} · {r.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            {regionChanged && (
+              <TextField label="Reason for region change" value={f.regionChangeReason} onChange={set('regionChangeReason')} />
+            )}
+          </FormSection>
         </Stack>
       </DialogContent>
       <DialogActions>
@@ -336,8 +365,12 @@ function EditProducerDialog({
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <Stack direction="row" justifyContent="space-between" spacing={2}>
-      <Typography color="text.secondary">{label}</Typography>
-      <Typography sx={{ textAlign: 'right' }}>{value}</Typography>
+      <Typography color="text.secondary" variant="body2">
+        {label}
+      </Typography>
+      <Typography variant="body2" sx={{ textAlign: 'right', fontWeight: 500 }}>
+        {value}
+      </Typography>
     </Stack>
   );
 }

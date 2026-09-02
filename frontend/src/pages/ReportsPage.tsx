@@ -37,7 +37,7 @@ export function ReportsPage() {
 
   return (
     <>
-      <PageHeader title="Reports" />
+      <PageHeader title="Reports" subtitle="Collection and settlement summaries — export to PDF, Excel or CSV" />
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>

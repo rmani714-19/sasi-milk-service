@@ -6,6 +6,7 @@ import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
 import Grid from '@mui/material/Grid2';
+import InputAdornment from '@mui/material/InputAdornment';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -19,12 +20,17 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import PrintIcon from '@mui/icons-material/Print';
+import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
+import WbSunnyOutlinedIcon from '@mui/icons-material/WbSunnyOutlined';
+import Brightness3OutlinedIcon from '@mui/icons-material/Brightness3Outlined';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { litres as fmtL, money, rate as fmtRate, today, uuid } from '../lib/format';
 import { queueCollection } from '../lib/offline';
 import { PrintableReceipt } from '../components/PrintableReceipt';
-import { useToast } from '../components/ui';
+import { PageHeader } from '../components/PageHeader';
+import { SectionTitle, useToast } from '../components/ui';
 import type { CenterSettings, Collection, Page, Producer, RatePreview } from '../api/types';
 
 type Shift = 'MORNING' | 'EVENING';
@@ -184,203 +190,231 @@ export function CollectionPage() {
     }
   }
 
+  const bigInput = { sx: { fontSize: 22, fontWeight: 700, py: 1.25 } };
+
   return (
     <>
-    <PrintableReceipt collection={receiptFor} centerName={centerName} centerAddress={centerAddress} />
-    <Grid container spacing={3}>
-      <Grid size={{ xs: 12, md: 7, lg: 6 }}>
-        <Card>
-          <CardContent>
-            <Stack spacing={2.5}>
-              <Stack direction="row" spacing={2}>
-                <TextField
-                  label="Date"
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  InputLabelProps={{ shrink: true }}
-                />
-                <ToggleButtonGroup
-                  exclusive
-                  color="primary"
-                  value={shift}
-                  onChange={(_, v: Shift | null) => {
-                    if (v) {
-                      shiftPickedManually.current = true;
-                      setShift(v);
-                    }
-                  }}
-                  fullWidth
-                >
-                  <ToggleButton value="MORNING">Morning</ToggleButton>
-                  <ToggleButton value="EVENING">Evening</ToggleButton>
-                </ToggleButtonGroup>
-              </Stack>
+      <PrintableReceipt collection={receiptFor} centerName={centerName} centerAddress={centerAddress} />
+      <PageHeader title="Milk Collection" subtitle="Record each producer's milk — rate and amount are confirmed on the server" />
 
-              <TextField
-                label="Farmer number / QR"
-                inputRef={producerRef}
-                value={ref}
-                onChange={(e) => {
-                  setRef(e.target.value);
-                  setProducer(null);
-                  setNotFound(false);
-                }}
-                onBlur={resolveProducer}
-                onKeyDown={(e) => e.key === 'Enter' && resolveProducer()}
-                autoFocus
-                helperText={
-                  producer
-                    ? `${producer.producerName}${producer.regionId ? '' : ' — no region set'}`
-                    : notFound
-                      ? 'Not found — will be resolved on the server when you save'
-                      : 'Scan the QR or type the farmer number, then press Enter'
-                }
-                FormHelperTextProps={{ sx: { color: producer ? 'success.main' : undefined } }}
-              />
-
-              <Stack direction="row" spacing={2}>
-                <TextField
-                  label="Milk (litres)"
-                  type="number"
-                  value={litres}
-                  onChange={(e) => setLitres(e.target.value)}
-                  inputProps={{ step: '0.1', min: '0', inputMode: 'decimal' }}
-                />
-                <TextField
-                  label="FAT %"
-                  type="number"
-                  value={fat}
-                  onChange={(e) => setFat(e.target.value)}
-                  inputProps={{ step: '0.1', min: '0', inputMode: 'decimal' }}
-                />
-                <TextField
-                  label="SNF %"
-                  type="number"
-                  value={snf}
-                  onChange={(e) => setSnf(e.target.value)}
-                  inputProps={{ step: '0.1', min: '0', inputMode: 'decimal' }}
-                />
-              </Stack>
-
-              <Box sx={{ bgcolor: 'action.hover', borderRadius: 2, p: 2 }}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography color="text.secondary">Rate / litre</Typography>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography fontWeight={700} component="span">
-                      {preview ? fmtRate(preview.ratePerLitre) : '—'}
-                    </Typography>
-                    {preview && <Chip label={preview.scope} size="small" variant="outlined" />}
-                  </Stack>
+      <Grid container spacing={3}>
+        <Grid size={{ xs: 12, md: 7, lg: 6 }}>
+          <Card>
+            <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+              <Stack spacing={2.5}>
+                <Stack direction="row" spacing={2}>
+                  <TextField
+                    label="Date"
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ maxWidth: 180 }}
+                  />
+                  <ToggleButtonGroup
+                    exclusive
+                    size="large"
+                    color="primary"
+                    value={shift}
+                    onChange={(_, v: Shift | null) => {
+                      if (v) {
+                        shiftPickedManually.current = true;
+                        setShift(v);
+                      }
+                    }}
+                    fullWidth
+                  >
+                    <ToggleButton value="MORNING">
+                      <WbSunnyOutlinedIcon sx={{ mr: 1, fontSize: 20 }} /> Morning
+                    </ToggleButton>
+                    <ToggleButton value="EVENING">
+                      <Brightness3OutlinedIcon sx={{ mr: 1, fontSize: 20 }} /> Evening
+                    </ToggleButton>
+                  </ToggleButtonGroup>
                 </Stack>
-                <Divider sx={{ my: 1 }} />
-                <Stack direction="row" justifyContent="space-between">
-                  <Typography color="text.secondary">Estimated amount</Typography>
-                  <Typography variant="h6" color="primary">
-                    {estBase != null ? money(estBase) : '—'}
+
+                <TextField
+                  label="Producer number / QR"
+                  inputRef={producerRef}
+                  value={ref}
+                  onChange={(e) => {
+                    setRef(e.target.value);
+                    setProducer(null);
+                    setNotFound(false);
+                  }}
+                  onBlur={resolveProducer}
+                  onKeyDown={(e) => e.key === 'Enter' && resolveProducer()}
+                  autoFocus
+                  InputProps={{
+                    sx: { fontSize: 18, fontWeight: 600 },
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <Tooltip title="Scan the producer QR or type the number, then press Enter">
+                          <QrCodeScannerIcon color="action" />
+                        </Tooltip>
+                      </InputAdornment>
+                    ),
+                  }}
+                  helperText={
+                    producer
+                      ? `${producer.producerName}${producer.regionId ? '' : ' — no region set'}`
+                      : notFound
+                        ? 'Not found — will be resolved on the server when you save'
+                        : 'Scan the QR or type the producer number, then press Enter'
+                  }
+                  FormHelperTextProps={{ sx: { color: producer ? 'success.main' : undefined, fontWeight: producer ? 600 : 400 } }}
+                />
+
+                <Box>
+                  <Typography variant="overline" color="text.secondary">
+                    Quantity &amp; quality
                   </Typography>
-                </Stack>
-                <Typography variant="caption" color="text.secondary">
-                  Final amount is calculated on the server when you save.
-                </Typography>
-              </Box>
+                  <Stack direction="row" spacing={2} sx={{ mt: 1 }}>
+                    <TextField
+                      label="Milk (litres)"
+                      type="number"
+                      value={litres}
+                      onChange={(e) => setLitres(e.target.value)}
+                      inputProps={{ step: '0.1', min: '0', inputMode: 'decimal', ...bigInput }}
+                    />
+                    <TextField
+                      label="FAT %"
+                      type="number"
+                      value={fat}
+                      onChange={(e) => setFat(e.target.value)}
+                      inputProps={{ step: '0.1', min: '0', inputMode: 'decimal', ...bigInput }}
+                    />
+                    <TextField
+                      label="SNF %"
+                      type="number"
+                      value={snf}
+                      onChange={(e) => setSnf(e.target.value)}
+                      inputProps={{ step: '0.1', min: '0', inputMode: 'decimal', ...bigInput }}
+                    />
+                  </Stack>
+                </Box>
 
-              <Stack direction="row" spacing={2}>
-                <Button
-                  variant="contained"
-                  size="large"
-                  fullWidth
-                  disabled={!canSave || saving}
-                  onClick={save}
-                >
-                  {saving ? 'Saving…' : 'Save & next producer'}
-                </Button>
-                <Button size="large" onClick={() => resetEntry(false)} disabled={saving}>
-                  Clear
-                </Button>
-              </Stack>
+                <Box sx={{ bgcolor: 'primary.light', borderRadius: 2, p: 2.5 }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Typography color="text.secondary" fontWeight={500}>
+                      Rate / litre
+                    </Typography>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Typography fontWeight={700} fontSize={18} component="span" color="primary.dark">
+                        {preview ? fmtRate(preview.ratePerLitre) : '—'}
+                      </Typography>
+                      {preview && <Chip label={preview.scope} size="small" variant="outlined" />}
+                    </Stack>
+                  </Stack>
+                  <Divider sx={{ my: 1.5 }} />
+                  <Stack direction="row" justifyContent="space-between" alignItems="baseline">
+                    <Typography color="text.secondary" fontWeight={500}>
+                      Estimated amount
+                    </Typography>
+                    <Typography sx={{ fontSize: 28, fontWeight: 700 }} color="primary.dark">
+                      {estBase != null ? money(estBase) : '—'}
+                    </Typography>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary">
+                    Final amount (incentive, deduction) is calculated on the server when you save.
+                  </Typography>
+                </Box>
 
-              {lastSaved && (
-                <Box
-                  sx={{
-                    bgcolor: 'success.light',
-                    color: 'success.contrastText',
-                    borderRadius: 2,
-                    p: 1.5,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 1,
-                  }}
-                >
-                  <Box>
-                    <Typography variant="body2" fontWeight={700}>
-                      Saved · {lastSaved.collectionNumber}
-                    </Typography>
-                    <Typography variant="caption">
-                      {fmtL(lastSaved.litres)} @ {fmtRate(lastSaved.breakdown.ratePerLitre)} ={' '}
-                      {money(lastSaved.breakdown.netAmount)}
-                    </Typography>
-                  </Box>
+                <Stack direction="row" spacing={2}>
                   <Button
                     variant="contained"
-                    color="inherit"
-                    startIcon={<PrintIcon />}
-                    onClick={() => print(lastSaved)}
-                    sx={{ color: 'success.dark', bgcolor: 'background.paper' }}
+                    size="large"
+                    fullWidth
+                    disabled={!canSave || saving}
+                    onClick={save}
                   >
-                    Print receipt
+                    {saving ? 'Saving…' : 'Save & next producer'}
                   </Button>
-                </Box>
-              )}
-            </Stack>
-          </CardContent>
-        </Card>
-      </Grid>
+                  <Button size="large" variant="outlined" onClick={() => resetEntry(false)} disabled={saving}>
+                    Clear
+                  </Button>
+                </Stack>
 
-      <Grid size={{ xs: 12, md: 5, lg: 6 }}>
-        <Typography variant="h6" sx={{ mb: 1 }}>
-          Today · {date}
-        </Typography>
-        <Card>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>No.</TableCell>
-                <TableCell>Farmer</TableCell>
-                <TableCell align="right">Litres</TableCell>
-                <TableCell align="right">Net</TableCell>
-                <TableCell align="right" />
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {recent.data?.content.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell>{c.collectionNumber}</TableCell>
-                  <TableCell>{c.producerNumber ?? c.producerName ?? `#${c.producerId}`}</TableCell>
-                  <TableCell align="right">{fmtL(c.litres)}</TableCell>
-                  <TableCell align="right">{money(c.breakdown.netAmount)}</TableCell>
-                  <TableCell align="right" padding="none">
-                    <Tooltip title="Print receipt">
-                      <IconButton size="small" onClick={() => print(c)}>
-                        <PrintIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {recent.data && recent.data.content.length === 0 && (
+                {lastSaved && (
+                  <Box
+                    sx={{
+                      bgcolor: 'primary.light',
+                      border: 1,
+                      borderColor: 'primary.main',
+                      borderRadius: 2,
+                      p: 2,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1.5,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <CheckCircleIcon sx={{ color: 'success.main' }} />
+                      <Box>
+                        <Typography variant="body2" fontWeight={700}>
+                          Saved · {lastSaved.collectionNumber}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {fmtL(lastSaved.litres)} @ {fmtRate(lastSaved.breakdown.ratePerLitre)} ={' '}
+                          {money(lastSaved.breakdown.netAmount)}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                    <Button variant="contained" startIcon={<PrintIcon />} onClick={() => print(lastSaved)}>
+                      Print receipt
+                    </Button>
+                  </Box>
+                )}
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid size={{ xs: 12, md: 5, lg: 6 }}>
+          <SectionTitle sx={{ mt: { xs: 0, md: 0 } }}>Today · {date}</SectionTitle>
+          <Card>
+            <Table size="small">
+              <TableHead>
                 <TableRow>
-                  <TableCell colSpan={5} sx={{ color: 'text.secondary', textAlign: 'center', py: 3 }}>
-                    No collections recorded for this date.
-                  </TableCell>
+                  <TableCell>No.</TableCell>
+                  <TableCell>Producer</TableCell>
+                  <TableCell align="right">Litres</TableCell>
+                  <TableCell align="right">Net</TableCell>
+                  <TableCell align="right" />
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </Card>
+              </TableHead>
+              <TableBody>
+                {recent.data?.content.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell>{c.collectionNumber}</TableCell>
+                    <TableCell>{c.producerName ?? c.producerNumber ?? `#${c.producerId}`}</TableCell>
+                    <TableCell align="right">{fmtL(c.litres)}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600 }}>
+                      {money(c.breakdown.netAmount)}
+                    </TableCell>
+                    <TableCell align="right" padding="none">
+                      <Tooltip title="Print receipt">
+                        <IconButton size="small" onClick={() => print(c)}>
+                          <PrintIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {recent.data && recent.data.content.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>
+                      No collections recorded for this date.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </Card>
+        </Grid>
       </Grid>
-    </Grid>
     </>
   );
 }

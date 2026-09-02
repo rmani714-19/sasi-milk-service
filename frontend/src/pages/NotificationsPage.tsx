@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -24,7 +23,8 @@ import EmailIcon from '@mui/icons-material/Email';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { PageHeader } from '../components/PageHeader';
-import { QueryBoundary, useToast } from '../components/ui';
+import { StatusChip } from '../components/StatusChip';
+import { QueryBoundary, SectionTitle, useToast } from '../components/ui';
 import type { NotificationChannel, NotificationLogItem, NotificationTemplateItem } from '../api/types';
 
 const CHANNEL_META: Record<string, { label: string; icon: JSX.Element; hint: string }> = {
@@ -86,9 +86,7 @@ export function NotificationsPage() {
     <>
       <PageHeader title="Notifications" subtitle="Enable the channels you use, then tune the message templates" />
 
-      <Typography variant="h6" sx={{ mb: 1 }}>
-        Channels
-      </Typography>
+      <SectionTitle>Channels</SectionTitle>
       <QueryBoundary query={channels}>
         {(list) => (
           <Grid container spacing={2} sx={{ mb: 4 }}>
@@ -100,9 +98,7 @@ export function NotificationsPage() {
         )}
       </QueryBoundary>
 
-      <Typography variant="h6" sx={{ mb: 1 }}>
-        Message templates
-      </Typography>
+      <SectionTitle sx={{ mt: 4 }}>Message templates</SectionTitle>
       <Card sx={{ mb: 4, overflowX: 'auto' }}>
         <QueryBoundary query={templates} empty={(d) => d.length === 0}>
           {(list) => (
@@ -125,7 +121,7 @@ export function NotificationsPage() {
                       <Typography variant="caption">{t.body}</Typography>
                     </TableCell>
                     <TableCell>
-                      <Chip size="small" variant="outlined" label={t.status} />
+                      <StatusChip status={t.status} />
                     </TableCell>
                     <TableCell align="right">
                       <Button size="small" onClick={() => setEditTpl(t)}>
@@ -140,9 +136,7 @@ export function NotificationsPage() {
         </QueryBoundary>
       </Card>
 
-      <Typography variant="h6" sx={{ mb: 1 }}>
-        Recent
-      </Typography>
+      <SectionTitle>Recent</SectionTitle>
       <Card sx={{ overflowX: 'auto' }}>
         <QueryBoundary query={recent} empty={(d) => d.length === 0}>
           {(list) => (
@@ -163,12 +157,7 @@ export function NotificationsPage() {
                     <TableCell>{n.channel}</TableCell>
                     <TableCell>{n.recipient}</TableCell>
                     <TableCell>
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        label={n.status}
-                        color={n.status === 'SENT' || n.status === 'DELIVERED' ? 'success' : n.status === 'FAILED' ? 'error' : 'default'}
-                      />
+                      <StatusChip status={n.status} />
                     </TableCell>
                     <TableCell sx={{ maxWidth: 320, whiteSpace: 'normal' }}>
                       <Typography variant="caption">{n.renderedBody}</Typography>

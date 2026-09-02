@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
-import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -19,8 +18,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { litres, money } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
-import { QueryBoundary, useToast } from '../components/ui';
-import { statusColor } from './settlementStatus';
+import { StatusChip } from '../components/StatusChip';
+import { EmptyState, QueryBoundary, TableSkeleton, useToast } from '../components/ui';
 import type { SettlementSummary } from '../api/types';
 
 export function SettlementsPage() {
@@ -48,7 +47,8 @@ export function SettlementsPage() {
   return (
     <>
       <PageHeader
-        title="Payments"
+        title="Settlement"
+        subtitle="Weekly producer settlement runs and payouts"
         action={
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
             New settlement
@@ -56,14 +56,29 @@ export function SettlementsPage() {
         }
       />
       <Card>
-        <QueryBoundary query={list} empty={(d) => d.length === 0}>
+        <QueryBoundary
+          query={list}
+          skeleton={<TableSkeleton cols={6} />}
+          empty={(d) => d.length === 0}
+          emptyState={
+            <EmptyState
+              title="No settlements yet"
+              description="Create a settlement for a date range to calculate producer payouts."
+              action={
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
+                  New settlement
+                </Button>
+              }
+            />
+          }
+        >
           {(d) => (
             <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell>Number</TableCell>
                   <TableCell>Period</TableCell>
-                  <TableCell align="right">Farmers</TableCell>
+                  <TableCell align="right">Producers</TableCell>
                   <TableCell align="right">Litres</TableCell>
                   <TableCell align="right">Net payable</TableCell>
                   <TableCell>Status</TableCell>
@@ -72,15 +87,17 @@ export function SettlementsPage() {
               <TableBody>
                 {d.map((s) => (
                   <TableRow key={s.id} hover sx={{ cursor: 'pointer' }} onClick={() => nav(`/settlements/${s.internalId}`)}>
-                    <TableCell>{s.settlementNumber}</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>{s.settlementNumber}</TableCell>
                     <TableCell>
                       {s.periodStart} → {s.periodEnd}
                     </TableCell>
                     <TableCell align="right">{s.totalProducers}</TableCell>
                     <TableCell align="right">{litres(s.totalLitres)}</TableCell>
-                    <TableCell align="right">{money(s.totalNetPayable)}</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>
+                      {money(s.totalNetPayable)}
+                    </TableCell>
                     <TableCell>
-                      <Chip size="small" label={s.status} color={statusColor(s.status)} variant="outlined" />
+                      <StatusChip status={s.status} />
                     </TableCell>
                   </TableRow>
                 ))}

@@ -35,29 +35,26 @@ export function LoginPage() {
         minHeight: '100vh',
         display: 'grid',
         placeItems: 'center',
-        bgcolor: 'primary.main',
+        bgcolor: 'primary.dark',
         p: 2,
       }}
     >
-      <Paper sx={{ p: 4, width: '100%', maxWidth: 380 }} elevation={6}>
-        <Box sx={{ textAlign: 'center', mb: 2 }}>
+      <Paper sx={{ p: { xs: 3, sm: 4 }, width: '100%', maxWidth: 400, borderRadius: 3 }} elevation={0}>
+        <Box sx={{ textAlign: 'center', mb: 3 }}>
           <Box
             component="img"
             src="/logo.png"
             alt="Sasi Dairy Farm"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = 'none';
-              (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty('display', 'block');
-            }}
-            sx={{ width: '100%', maxWidth: 190, height: 'auto', display: 'block', mx: 'auto' }}
+            onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
+            sx={{ width: '100%', maxWidth: 170, height: 'auto', display: 'block', mx: 'auto', mb: 1 }}
           />
-          <Typography variant="h5" color="primary" sx={{ display: 'none' }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, color: 'primary.dark' }}>
             SASI MILK SERVICE
           </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Sign in to continue
+          </Typography>
         </Box>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3, textAlign: 'center' }}>
-          Sign in to continue
-        </Typography>
         <form onSubmit={submit}>
           <Stack spacing={2}>
             <TextField

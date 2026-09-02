@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
@@ -17,7 +18,8 @@ import { api } from '../lib/api';
 import { money, today } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
 import { ProducerPicker } from '../components/ProducerPicker';
-import { useToast } from '../components/ui';
+import { StatusChip } from '../components/StatusChip';
+import { EmptyState, SectionTitle, useToast } from '../components/ui';
 import type { Producer } from '../api/types';
 
 interface AdvanceAccount {
@@ -75,17 +77,22 @@ export function AdvancesPage() {
 
   return (
     <>
-      <PageHeader title="Advances" subtitle="Weekly recovery is applied automatically at settlement" />
+      <PageHeader title="Advances" subtitle="Weekly recovery is applied automatically at settlement, oldest advance first" />
       <Stack spacing={3}>
         <ProducerPicker value={producer} onChange={setProducer} />
+        {!producer && (
+          <Card>
+            <EmptyState title="Pick a producer" description="Choose a producer to issue advances and view the recovery ledger." />
+          </Card>
+        )}
         {producer && data.data && (
           <>
-            <Card>
+            <Card sx={{ bgcolor: 'primary.light', borderColor: 'primary.main' }}>
               <CardContent>
-                <Typography color="text.secondary" variant="body2">
+                <Typography color="text.secondary" variant="body2" fontWeight={500}>
                   Total outstanding
                 </Typography>
-                <Typography variant="h5" color="primary">
+                <Typography sx={{ fontSize: 28, fontWeight: 700 }} color="primary.dark">
                   {money(data.data.totalOutstanding)}
                 </Typography>
               </CardContent>
@@ -93,6 +100,7 @@ export function AdvancesPage() {
 
             <Card>
               <CardContent>
+                <SectionTitle sx={{ mb: 2 }}>Issue an advance</SectionTitle>
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 6, sm: 3 }}>
                     <TextField label="Advance amount" type="number" value={f.amount} onChange={set('amount')} />
@@ -125,35 +133,46 @@ export function AdvancesPage() {
               </CardContent>
             </Card>
 
-            <Card>
-              <Typography sx={{ p: 2, pb: 0 }} variant="subtitle2">
-                Accounts
-              </Typography>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Date</TableCell>
-                    <TableCell align="right">Original</TableCell>
-                    <TableCell>Recovery</TableCell>
-                    <TableCell align="right">Outstanding</TableCell>
-                    <TableCell>Status</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {data.data.accounts.map((a) => (
-                    <TableRow key={a.id}>
-                      <TableCell>{a.advanceDate}</TableCell>
-                      <TableCell align="right">{money(a.originalAmount)}</TableCell>
-                      <TableCell>
-                        {a.recoveryMode === 'FIXED_PER_WEEK' ? `${money(a.recoveryAmount)}/wk` : `${a.recoveryPercentage}%`}
-                      </TableCell>
-                      <TableCell align="right">{money(a.outstandingAmount)}</TableCell>
-                      <TableCell>{a.status}</TableCell>
+            <Box>
+              <SectionTitle>Accounts</SectionTitle>
+              <Card>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Date</TableCell>
+                      <TableCell align="right">Original</TableCell>
+                      <TableCell>Recovery</TableCell>
+                      <TableCell align="right">Outstanding</TableCell>
+                      <TableCell>Status</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Card>
+                  </TableHead>
+                  <TableBody>
+                    {data.data.accounts.map((a) => (
+                      <TableRow key={a.id}>
+                        <TableCell>{a.advanceDate}</TableCell>
+                        <TableCell align="right">{money(a.originalAmount)}</TableCell>
+                        <TableCell>
+                          {a.recoveryMode === 'FIXED_PER_WEEK' ? `${money(a.recoveryAmount)}/wk` : `${a.recoveryPercentage}%`}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600 }}>
+                          {money(a.outstandingAmount)}
+                        </TableCell>
+                        <TableCell>
+                          <StatusChip status={a.status} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {data.data.accounts.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+                          No advances for this producer
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </Card>
+            </Box>
           </>
         )}
       </Stack>

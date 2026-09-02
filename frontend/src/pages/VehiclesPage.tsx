@@ -2,7 +2,6 @@ import { useState } from 'react';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -12,10 +11,12 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
+import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { PageHeader } from '../components/PageHeader';
-import { useToast } from '../components/ui';
+import { StatusChip } from '../components/StatusChip';
+import { CardGridSkeleton, EmptyState, useToast } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import type { VehicleStatus } from '../api/types';
 
@@ -51,7 +52,7 @@ export function VehiclesPage() {
     <>
       <PageHeader
         title="Vehicles"
-        subtitle="Phase 2 — GPS provider integration pending"
+        subtitle="Phase 2 — live GPS provider integration pending"
         action={
           can('ALL') && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
@@ -60,39 +61,52 @@ export function VehiclesPage() {
           )
         }
       />
-      <Grid container spacing={2}>
-        {status.data?.map((v) => (
-          <Grid size={{ xs: 12, sm: 6, md: 4 }} key={v.vehicleId}>
-            <Card>
-              <CardContent>
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography variant="h6">{v.code}</Typography>
-                  <Chip size="small" label={v.online ? 'Online' : 'Offline'} color={v.online ? 'success' : 'default'} />
-                </Stack>
-                <Typography variant="body2" color="text.secondary">
-                  {v.registrationNumber}
-                </Typography>
-                <Typography variant="body2" sx={{ mt: 1 }}>
-                  {v.latitude != null ? `${v.latitude.toFixed(4)}, ${v.longitude?.toFixed(4)}` : 'No GPS fix'}
-                  {v.speedKmph != null && ` · ${v.speedKmph} km/h`}
-                </Typography>
-                {v.lastFixAt && (
-                  <Typography variant="caption" color="text.secondary">
-                    last fix {new Date(v.lastFixAt).toLocaleString()}
+
+      {status.isLoading ? (
+        <CardGridSkeleton count={3} height={140} />
+      ) : status.data && status.data.length > 0 ? (
+        <Grid container spacing={2}>
+          {status.data.map((v) => (
+            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={v.vehicleId}>
+              <Card sx={{ height: '100%' }}>
+                <CardContent>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Typography variant="subtitle1">{v.code}</Typography>
+                    <StatusChip status={v.online ? 'ACTIVE' : 'INACTIVE'} label={v.online ? 'Online' : 'Offline'} />
+                  </Stack>
+                  <Typography variant="body2" color="text.secondary">
+                    {v.registrationNumber}
                   </Typography>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-        {status.data?.length === 0 && (
-          <Grid size={12}>
-            <Typography color="text.secondary" sx={{ p: 2 }}>
-              No vehicles registered.
-            </Typography>
-          </Grid>
-        )}
-      </Grid>
+                  <Typography variant="body2" sx={{ mt: 1 }}>
+                    {v.latitude != null ? `${v.latitude.toFixed(4)}, ${v.longitude?.toFixed(4)}` : 'No GPS fix'}
+                    {v.speedKmph != null && ` · ${v.speedKmph} km/h`}
+                  </Typography>
+                  {v.lastFixAt && (
+                    <Typography variant="caption" color="text.secondary">
+                      last fix {new Date(v.lastFixAt).toLocaleString()}
+                    </Typography>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      ) : (
+        <Card>
+          <EmptyState
+            icon={<LocalShippingOutlinedIcon />}
+            title="No vehicles registered"
+            description="Add a collection vehicle to track it here."
+            action={
+              can('ALL') && (
+                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
+                  Add vehicle
+                </Button>
+              )
+            }
+          />
+        </Card>
+      )}
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>Add vehicle</DialogTitle>

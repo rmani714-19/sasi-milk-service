@@ -2,7 +2,6 @@ import { useState } from 'react';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import Chip from '@mui/material/Chip';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -16,7 +15,8 @@ import { api } from '../lib/api';
 import { money, today } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
 import { ProducerPicker } from '../components/ProducerPicker';
-import { useToast } from '../components/ui';
+import { StatusChip } from '../components/StatusChip';
+import { EmptyState, useToast } from '../components/ui';
 import type { Producer } from '../api/types';
 
 interface DType { id: number; code: string; name: string }
@@ -56,14 +56,19 @@ export function DeductionsPage() {
 
   return (
     <>
-      <PageHeader title="Deductions" subtitle="Fixed amounts — cow feed, emergency cash, etc." />
+      <PageHeader title="Deductions" subtitle="Fixed rupee amounts — cow feed, emergency cash, etc. Applied at settlement." />
       <Stack spacing={3}>
         <ProducerPicker value={producer} onChange={setProducer} />
+        {!producer && (
+          <Card>
+            <EmptyState title="Pick a producer" description="Choose a producer to record and review deductions." />
+          </Card>
+        )}
         {producer && (
           <>
             <Card>
               <CardContent>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'flex-start' }}>
                   <TextField select label="Type" value={f.typeCode} onChange={set('typeCode')} sx={{ minWidth: 160 }}>
                     {types.data?.map((t) => (
                       <MenuItem key={t.id} value={t.code}>
@@ -74,7 +79,7 @@ export function DeductionsPage() {
                   <TextField label="Amount" type="number" value={f.amount} onChange={set('amount')} />
                   <TextField label="Date" type="date" value={f.txnDate} onChange={set('txnDate')} InputLabelProps={{ shrink: true }} />
                   <TextField label="Note" value={f.description} onChange={set('description')} />
-                  <Button variant="contained" disabled={!Number(f.amount) || create.isPending} onClick={() => create.mutate()}>
+                  <Button variant="contained" sx={{ minWidth: 96 }} disabled={!Number(f.amount) || create.isPending} onClick={() => create.mutate()}>
                     Add
                   </Button>
                 </Stack>
@@ -96,17 +101,19 @@ export function DeductionsPage() {
                     <TableRow key={d.id}>
                       <TableCell>{d.txnDate}</TableCell>
                       <TableCell>{typeName(d.deductionTypeId)}</TableCell>
-                      <TableCell align="right">{money(d.amount)}</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 600 }}>
+                        {money(d.amount)}
+                      </TableCell>
                       <TableCell>
-                        <Chip size="small" label={d.status} variant="outlined" />
+                        <StatusChip status={d.status} />
                       </TableCell>
                       <TableCell>{d.description ?? ''}</TableCell>
                     </TableRow>
                   ))}
                   {list.data?.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={5} sx={{ textAlign: 'center', py: 3, color: 'text.secondary' }}>
-                        No deductions
+                      <TableCell colSpan={5} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
+                        No deductions for this producer
                       </TableCell>
                     </TableRow>
                   )}

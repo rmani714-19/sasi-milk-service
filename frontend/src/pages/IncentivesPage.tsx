@@ -10,13 +10,13 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
-import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { rate, today } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
 import { ProducerPicker } from '../components/ProducerPicker';
-import { useToast } from '../components/ui';
+import { StatusChip } from '../components/StatusChip';
+import { EmptyState, SectionTitle, useToast } from '../components/ui';
 import type { Producer } from '../api/types';
 
 interface CommonInc { id: number; ratePerLitre: number; effectiveDate: string; endDate?: string; status: string; description?: string }
@@ -57,53 +57,100 @@ export function IncentivesPage() {
 
   return (
     <>
-      <PageHeader title="Incentives" subtitle="Common + individual, capped per litre by center settings" />
+      <PageHeader title="Incentives" subtitle="Common + individual rates, combined then capped per litre by centre settings" />
       <Grid container spacing={3}>
         <Grid size={{ xs: 12, md: 6 }}>
-          <Typography variant="h6" gutterBottom>Common</Typography>
+          <SectionTitle>Common incentive</SectionTitle>
           <Card sx={{ mb: 2 }}>
             <CardContent>
-              <Stack direction="row" spacing={2}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'flex-start' }}>
                 <TextField label="Rate / litre" type="number" value={common.ratePerLitre} onChange={(e) => setCommon({ ...common, ratePerLitre: e.target.value })} />
-                <TextField label="From" type="date" value={common.effectiveDate} onChange={(e) => setCommon({ ...common, effectiveDate: e.target.value })} InputLabelProps={{ shrink: true }} />
-                <Button variant="contained" disabled={!Number(common.ratePerLitre) || addCommon.isPending} onClick={() => addCommon.mutate()}>Add</Button>
+                <TextField label="Effective from" type="date" value={common.effectiveDate} onChange={(e) => setCommon({ ...common, effectiveDate: e.target.value })} InputLabelProps={{ shrink: true }} />
+                <Button variant="contained" sx={{ minWidth: 96 }} disabled={!Number(common.ratePerLitre) || addCommon.isPending} onClick={() => addCommon.mutate()}>
+                  Add
+                </Button>
               </Stack>
             </CardContent>
           </Card>
           <Card>
             <Table size="small">
-              <TableHead><TableRow><TableCell>From</TableCell><TableCell align="right">Rate</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
+              <TableHead>
+                <TableRow>
+                  <TableCell>From</TableCell>
+                  <TableCell align="right">Rate</TableCell>
+                  <TableCell>Status</TableCell>
+                </TableRow>
+              </TableHead>
               <TableBody>
                 {commonList.data?.map((c) => (
-                  <TableRow key={c.id}><TableCell>{c.effectiveDate}</TableCell><TableCell align="right">{rate(c.ratePerLitre)}</TableCell><TableCell>{c.status}</TableCell></TableRow>
+                  <TableRow key={c.id}>
+                    <TableCell>{c.effectiveDate}</TableCell>
+                    <TableCell align="right">{rate(c.ratePerLitre)}</TableCell>
+                    <TableCell>
+                      <StatusChip status={c.status} />
+                    </TableCell>
+                  </TableRow>
                 ))}
+                {commonList.data?.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={3} sx={{ textAlign: 'center', py: 3, color: 'text.secondary' }}>
+                      No common incentive set
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </Card>
         </Grid>
 
         <Grid size={{ xs: 12, md: 6 }}>
-          <Typography variant="h6" gutterBottom>Individual</Typography>
+          <SectionTitle>Individual incentive</SectionTitle>
           <Stack spacing={2}>
             <ProducerPicker value={producer} onChange={setProducer} />
+            {!producer && (
+              <Card>
+                <EmptyState title="Pick a producer" description="Choose a producer to view and add individual incentives." />
+              </Card>
+            )}
             {producer && (
               <>
                 <Card>
                   <CardContent>
-                    <Stack direction="row" spacing={2}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'flex-start' }}>
                       <TextField label="Rate / litre" type="number" value={ind.ratePerLitre} onChange={(e) => setInd({ ...ind, ratePerLitre: e.target.value })} />
-                      <TextField label="From" type="date" value={ind.effectiveDate} onChange={(e) => setInd({ ...ind, effectiveDate: e.target.value })} InputLabelProps={{ shrink: true }} />
-                      <Button variant="contained" disabled={!Number(ind.ratePerLitre) || addInd.isPending} onClick={() => addInd.mutate()}>Add</Button>
+                      <TextField label="Effective from" type="date" value={ind.effectiveDate} onChange={(e) => setInd({ ...ind, effectiveDate: e.target.value })} InputLabelProps={{ shrink: true }} />
+                      <Button variant="contained" sx={{ minWidth: 96 }} disabled={!Number(ind.ratePerLitre) || addInd.isPending} onClick={() => addInd.mutate()}>
+                        Add
+                      </Button>
                     </Stack>
                   </CardContent>
                 </Card>
                 <Card>
                   <Table size="small">
-                    <TableHead><TableRow><TableCell>From</TableCell><TableCell align="right">Rate</TableCell><TableCell>Status</TableCell></TableRow></TableHead>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>From</TableCell>
+                        <TableCell align="right">Rate</TableCell>
+                        <TableCell>Status</TableCell>
+                      </TableRow>
+                    </TableHead>
                     <TableBody>
                       {indList.data?.map((c) => (
-                        <TableRow key={c.id}><TableCell>{c.effectiveDate}</TableCell><TableCell align="right">{rate(c.ratePerLitre)}</TableCell><TableCell>{c.status}</TableCell></TableRow>
+                        <TableRow key={c.id}>
+                          <TableCell>{c.effectiveDate}</TableCell>
+                          <TableCell align="right">{rate(c.ratePerLitre)}</TableCell>
+                          <TableCell>
+                            <StatusChip status={c.status} />
+                          </TableCell>
+                        </TableRow>
                       ))}
+                      {indList.data?.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={3} sx={{ textAlign: 'center', py: 3, color: 'text.secondary' }}>
+                            No individual incentive for this producer
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </Card>

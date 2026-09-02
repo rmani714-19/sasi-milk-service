@@ -1,30 +1,64 @@
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
+import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import Chip from '@mui/material/Chip';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
 import Grid from '@mui/material/Grid2';
 import Stack from '@mui/material/Stack';
+import Step from '@mui/material/Step';
+import StepLabel from '@mui/material/StepLabel';
+import Stepper from '@mui/material/Stepper';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
+import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { litres, money } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
-import { QueryBoundary, useToast } from '../components/ui';
+import { StatusChip } from '../components/StatusChip';
+import { ConfirmDialog, QueryBoundary, SectionTitle, useToast } from '../components/ui';
 import { useAuth } from '../lib/auth';
-import { statusColor } from './settlementStatus';
 import type { Payout, SettlementDetail } from '../api/types';
+
+const LIFECYCLE = ['DRAFT', 'CALCULATED', 'REVIEWED', 'APPROVED', 'PAID'] as const;
+
+function stepIndex(status: string): number {
+  switch (status) {
+    case 'DRAFT':
+      return 0;
+    case 'CALCULATED':
+      return 1;
+    case 'REVIEWED':
+      return 2;
+    case 'APPROVED':
+      return 3;
+    case 'PAYOUT_INITIATED':
+    case 'PARTIALLY_PAID':
+      return 4;
+    case 'PAID':
+      return 5;
+    default:
+      return 0;
+  }
+}
 
 export function SettlementDetailPage() {
   const { id } = useParams();
   const toast = useToast();
   const qc = useQueryClient();
   const { can } = useAuth();
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [utrFor, setUtrFor] = useState<Payout | null>(null);
+  const [utr, setUtr] = useState('');
 
   const detail = useQuery({
     queryKey: ['settlement', id],
@@ -41,6 +75,7 @@ export function SettlementDetailPage() {
       (await api.post(`/settlements/${id}/${path}`)).data,
     onSuccess: (_d, v) => {
       toast.success(v.ok);
+      setConfirmCancel(false);
       qc.invalidateQueries({ queryKey: ['settlement', id] });
       qc.invalidateQueries({ queryKey: ['payouts', id] });
     },
@@ -67,13 +102,29 @@ export function SettlementDetailPage() {
     <QueryBoundary query={detail}>
       {(s) => {
         const busy = lifecycle.isPending || initiatePayouts.isPending;
+        const active = stepIndex(s.status);
+        const terminal = s.status === 'CANCELLED' || s.status === 'FAILED';
         return (
           <>
             <PageHeader
               title={s.settlementNumber}
               subtitle={`${s.periodStart} → ${s.periodEnd} · rounding ${s.roundingMode}/${s.roundingScale}`}
-              action={<Chip label={s.status} color={statusColor(s.status)} />}
+              action={<StatusChip status={s.status} />}
             />
+
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Stepper activeStep={active} alternativeLabel>
+                  {LIFECYCLE.map((label) => (
+                    <Step key={label}>
+                      <StepLabel error={terminal && label === LIFECYCLE[active]}>
+                        {label.charAt(0) + label.slice(1).toLowerCase()}
+                      </StepLabel>
+                    </Step>
+                  ))}
+                </Stepper>
+              </CardContent>
+            </Card>
 
             <Stack direction="row" spacing={1} sx={{ mb: 3, flexWrap: 'wrap', gap: 1 }}>
               {['DRAFT', 'CALCULATED', 'REVIEWED'].includes(s.status) && can('GENERATE_SETTLEMENT') && (
@@ -98,7 +149,7 @@ export function SettlementDetailPage() {
                   </Button>
                 )}
               {['DRAFT', 'CALCULATED', 'REVIEWED'].includes(s.status) && can('GENERATE_SETTLEMENT') && (
-                <Button color="error" disabled={busy} onClick={() => run('cancel', 'Cancelled')}>
+                <Button color="error" variant="outlined" disabled={busy} onClick={() => setConfirmCancel(true)}>
                   Cancel
                 </Button>
               )}
@@ -106,36 +157,45 @@ export function SettlementDetailPage() {
 
             <Grid container spacing={2} sx={{ mb: 3 }}>
               {[
-                ['Farmers', String(s.totalProducers)],
-                ['Total litres', litres(s.totalLitres)],
-                ['Milk amount', money(s.totalMilkAmount)],
-                ['Incentive', money(s.totalIncentive)],
-                ['Deductions', money(s.totalDeduction)],
-                ['Advance recovery', money(s.totalAdvanceRecovery)],
-                ['Round off', money(s.totalRoundOff)],
-                ['Net payable', money(s.totalNetPayable)],
-              ].map(([k, v]) => (
-                <Grid size={{ xs: 6, md: 3 }} key={k}>
-                  <Card>
+                ['Producers', String(s.totalProducers), false],
+                ['Total litres', litres(s.totalLitres), false],
+                ['Milk amount', money(s.totalMilkAmount), false],
+                ['Incentive', money(s.totalIncentive), false],
+                ['Deductions', money(s.totalDeduction), false],
+                ['Advance recovery', money(s.totalAdvanceRecovery), false],
+                ['Round off', money(s.totalRoundOff), false],
+                ['Net payable', money(s.totalNetPayable), true],
+              ].map(([k, v, emphasize]) => (
+                <Grid size={{ xs: 6, md: 3 }} key={k as string}>
+                  <Card
+                    sx={
+                      emphasize
+                        ? { bgcolor: 'primary.light', borderColor: 'primary.main', height: '100%' }
+                        : { height: '100%' }
+                    }
+                  >
                     <CardContent>
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: 13, fontWeight: 500 }}>
                         {k}
                       </Typography>
-                      <Typography variant="h6">{v}</Typography>
+                      <Typography
+                        sx={{ fontSize: emphasize ? 24 : 20, fontWeight: 700, mt: 0.25 }}
+                        color={emphasize ? 'primary.dark' : 'text.primary'}
+                      >
+                        {v}
+                      </Typography>
                     </CardContent>
                   </Card>
                 </Grid>
               ))}
             </Grid>
 
-            <Typography variant="h6" sx={{ mb: 1 }}>
-              Farmer lines
-            </Typography>
+            <SectionTitle>Producer lines</SectionTitle>
             <Card sx={{ mb: 4, overflowX: 'auto' }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Farmer</TableCell>
+                    <TableCell>Producer</TableCell>
                     <TableCell align="right">Litres</TableCell>
                     <TableCell align="right">Gross</TableCell>
                     <TableCell align="right">Deduction</TableCell>
@@ -154,17 +214,17 @@ export function SettlementDetailPage() {
                       <TableCell align="right">{money(it.totalDeduction - it.advanceRecovery)}</TableCell>
                       <TableCell align="right">{money(it.advanceRecovery)}</TableCell>
                       <TableCell align="right">{money(it.roundOff)}</TableCell>
-                      <TableCell align="right">
-                        <strong>{money(it.netPayable)}</strong>
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>
+                        {money(it.netPayable)}
                       </TableCell>
                       <TableCell>
-                        <Chip size="small" variant="outlined" label={it.paymentStatus} />
+                        <StatusChip status={it.paymentStatus} />
                       </TableCell>
                     </TableRow>
                   ))}
                   {s.items.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={8} sx={{ textAlign: 'center', py: 3, color: 'text.secondary' }}>
+                      <TableCell colSpan={8} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
                         No lines yet — calculate the settlement.
                       </TableCell>
                     </TableRow>
@@ -175,14 +235,12 @@ export function SettlementDetailPage() {
 
             {payouts.data && payouts.data.length > 0 && (
               <>
-                <Typography variant="h6" sx={{ mb: 1 }}>
-                  Payouts
-                </Typography>
+                <SectionTitle>Payouts</SectionTitle>
                 <Card sx={{ overflowX: 'auto' }}>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Farmer</TableCell>
+                        <TableCell>Producer</TableCell>
                         <TableCell align="right">Amount</TableCell>
                         <TableCell>Provider</TableCell>
                         <TableCell>Status</TableCell>
@@ -194,10 +252,12 @@ export function SettlementDetailPage() {
                       {payouts.data.map((p) => (
                         <TableRow key={p.id}>
                           <TableCell>#{p.producerId}</TableCell>
-                          <TableCell align="right">{money(p.amount)}</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 600 }}>
+                            {money(p.amount)}
+                          </TableCell>
                           <TableCell>{p.provider}</TableCell>
                           <TableCell>
-                            <Chip size="small" variant="outlined" label={p.status} color={statusColor(p.status)} />
+                            <StatusChip status={p.status} />
                           </TableCell>
                           <TableCell>{p.utr ?? '—'}</TableCell>
                           <TableCell align="right">
@@ -205,8 +265,8 @@ export function SettlementDetailPage() {
                               <Button
                                 size="small"
                                 onClick={() => {
-                                  const utr = window.prompt('Bank UTR / reference');
-                                  if (utr) payoutAction(p.id, 'mark-paid', { utr }).catch(toast.fromError);
+                                  setUtr('');
+                                  setUtrFor(p);
                                 }}
                               >
                                 Mark paid
@@ -225,6 +285,48 @@ export function SettlementDetailPage() {
                 </Card>
               </>
             )}
+
+            <ConfirmDialog
+              open={confirmCancel}
+              title="Cancel this settlement?"
+              message="Collections are detached, pending deductions are released and advance recoveries are reversed. This cannot be undone."
+              confirmLabel="Cancel settlement"
+              destructive
+              busy={lifecycle.isPending}
+              onConfirm={() => run('cancel', 'Cancelled')}
+              onClose={() => setConfirmCancel(false)}
+            />
+
+            <Dialog open={!!utrFor} onClose={() => setUtrFor(null)} fullWidth maxWidth="xs">
+              <DialogTitle>Mark payout as paid</DialogTitle>
+              <DialogContent>
+                <Box sx={{ mb: 2, mt: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Producer #{utrFor?.producerId} · {utrFor ? money(utrFor.amount) : ''}
+                  </Typography>
+                </Box>
+                <TextField
+                  label="Bank UTR / reference"
+                  value={utr}
+                  onChange={(e) => setUtr(e.target.value)}
+                  autoFocus
+                />
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setUtrFor(null)}>Cancel</Button>
+                <Button
+                  variant="contained"
+                  disabled={!utr.trim()}
+                  onClick={() => {
+                    const p = utrFor;
+                    setUtrFor(null);
+                    if (p) payoutAction(p.id, 'mark-paid', { utr: utr.trim() }).catch(toast.fromError);
+                  }}
+                >
+                  Mark paid
+                </Button>
+              </DialogActions>
+            </Dialog>
           </>
         );
       }}
