@@ -50,7 +50,7 @@ export function ReportsPage() {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }} variant="scrollable">
         <Tab label="Daily collection" />
         <Tab label="By region" />
-        <Tab label="Farmer statement" />
+        <Tab label="Producer statement" />
       </Tabs>
 
       {tab === 0 && <DailyCollection from={from} to={to} />}
@@ -98,7 +98,7 @@ function DailyCollection({ from, to }: { from: string; to: string }) {
               <TableCell align="right">Morning</TableCell>
               <TableCell align="right">Evening</TableCell>
               <TableCell align="right">Total</TableCell>
-              <TableCell align="right">Farmers</TableCell>
+              <TableCell align="right">Producers</TableCell>
               <TableCell align="right">Avg rate</TableCell>
               <TableCell align="right">Amount</TableCell>
             </TableRow>
@@ -136,7 +136,7 @@ function RegionReport({ from, to }: { from: string; to: string }) {
           <TableHead>
             <TableRow>
               <TableCell>Region</TableCell>
-              <TableCell align="right">Farmers</TableCell>
+              <TableCell align="right">Producers</TableCell>
               <TableCell align="right">Total litres</TableCell>
               <TableCell align="right">Avg rate</TableCell>
               <TableCell align="right">Amount</TableCell>
@@ -177,7 +177,7 @@ function ProducerStatement({ from, to }: { from: string; to: string }) {
       {producer && (
         <ExportButtons
           base={`/reports/producer-statement?producerId=${producer.id}&from=${from}&to=${to}`}
-          name={`farmer-${producer.producerNumber}-statement`}
+          name={`producer-${producer.producerNumber}-statement`}
         />
       )}
       {q.data && (

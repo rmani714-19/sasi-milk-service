@@ -8,7 +8,7 @@ import type { Page, Producer } from '../api/types';
 export function ProducerPicker({
   value,
   onChange,
-  label = 'Farmer',
+  label = 'Producer',
 }: {
   value: Producer | null;
   onChange: (p: Producer | null) => void;
