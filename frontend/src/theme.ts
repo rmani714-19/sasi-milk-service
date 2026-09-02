@@ -78,22 +78,23 @@ const VARIANTS: Record<ThemeMode, Variant & ModeAccents> = {
     badgeText: '#7A5B00',
     label: 'Morning shift',
   },
-  // dusk — burnt orange sky up top settling into warm brown / tan
+  // dusk — a warm orange glow at the very top, then a light sand ground so
+  // the existing dark type stays fully legible (same recipe as morning)
   evening: {
-    pageBg: '#EFE9E1',
+    pageBg: '#FAF5EE',
     pageGradient:
-      'linear-gradient(180deg, #E8781F 0%, #C9611F 4%, #97481F 8%, #7B4A31 12%, #B08862 17%, #DAC8B2 24%, #ECE5DB 40%, #EFE9E1 100%)',
-    paper: '#F4E9DD',
-    border: '#DDCAB4',
-    appBarBg: 'rgba(84, 47, 26, 0.55)',
-    appBarText: '#F7EFE6',
-    appBarBorder: 'rgba(255, 255, 255, 0.14)',
-    navBg: 'rgba(244, 233, 221, 0.88)',
-    navActiveBg: '#EEDDCA',
-    navActiveFg: '#8A4A1E',
-    navHoverBg: '#F0E6D9',
-    badgeBg: 'rgba(255, 255, 255, 0.20)',
-    badgeText: '#F7EFE6',
+      'linear-gradient(180deg, #E86A1E 0%, #E4761F 3%, #EE9A4A 6%, #F3BE86 10%, #F8DBBE 14%, #FBEEDE 20%, #FBF4EC 32%, #FAF5EE 100%)',
+    paper: '#F6ECDF',
+    border: '#E7D8C4',
+    appBarBg: 'rgba(255, 247, 238, 0.72)',
+    appBarText: BRAND.textPrimary,
+    appBarBorder: 'rgba(200, 130, 60, 0.30)',
+    navBg: 'rgba(246, 236, 223, 0.90)',
+    navActiveBg: '#F3DEC5',
+    navActiveFg: '#9A4A16',
+    navHoverBg: '#F1E7D9',
+    badgeBg: '#FFD9A8',
+    badgeText: '#8A4B12',
     label: 'Evening shift',
   },
 };
