@@ -35,7 +35,10 @@ const BRAND = {
 };
 
 interface Variant {
+  /** solid fallback (also used by MUI internals) — the settled bottom tone of the gradient */
   pageBg: string;
+  /** full sky gradient painted on <body> */
+  pageGradient: string;
   paper: string;
   border: string;
   appBarBg: string;
@@ -47,28 +50,38 @@ interface Variant {
 }
 
 const VARIANTS: Record<ThemeMode, Variant> = {
-  // bright, warm, airy
+  // sunrise — gold at the top, warming to a soft cream where the content sits
   morning: {
-    pageBg: '#F6F9F3',
+    pageBg: '#F8F5EE',
+    pageGradient:
+      'linear-gradient(180deg, #F7A828 0%, #FFC94D 5%, #FFDA79 10%, #FFE7AC 15%, #FBEFDF 24%, #F9F5EE 40%, #F8F5EE 100%)',
     paper: '#FFFFFF',
-    border: '#E4EADF',
-    appBarBg: '#FFFFFF',
+    border: '#EBE6DA',
+    appBarBg: 'rgba(255, 251, 240, 0.72)',
     appBarText: BRAND.textPrimary,
-    appBarBorder: '#E4EADF',
+    appBarBorder: 'rgba(196, 160, 90, 0.35)',
     badgeBg: '#FFF3D6',
     badgeText: '#8A6500',
   },
-  // dim, cool, green-filled
+  // dusk — deep indigo/magenta sky at the top, resolving to a calm lilac below
   evening: {
-    pageBg: '#DFE7E1',
-    paper: '#F7FAF7',
-    border: '#C8D3CC',
-    appBarBg: '#173F2E',
-    appBarText: '#EAF2EC',
-    appBarBorder: '#173F2E',
-    badgeBg: 'rgba(255,255,255,0.16)',
-    badgeText: '#EAF2EC',
+    pageBg: '#EFEBF3',
+    pageGradient:
+      'linear-gradient(180deg, #241B4A 0%, #3F2A6B 4%, #6E4485 8%, #B587AE 13%, #DFCFE0 18%, #EFE7F1 26%, #EFEBF3 100%)',
+    paper: '#F8F5FA',
+    border: '#DAD1E1',
+    appBarBg: 'rgba(28, 20, 54, 0.55)',
+    appBarText: '#F1ECF7',
+    appBarBorder: 'rgba(255, 255, 255, 0.14)',
+    badgeBg: 'rgba(255,255,255,0.18)',
+    badgeText: '#F1ECF7',
   },
+};
+
+/** the full sky gradient per mode — also used by the login screen */
+export const MODE_GRADIENTS: Record<ThemeMode, string> = {
+  morning: VARIANTS.morning.pageGradient,
+  evening: VARIANTS.evening.pageGradient,
 };
 
 // status chip colour pairs — used by <StatusChip/>
@@ -123,9 +136,14 @@ export function buildTheme(mode: ThemeMode): Theme {
         styleOverrides: {
           body: {
             backgroundColor: v.pageBg,
+            backgroundImage: v.pageGradient,
+            backgroundAttachment: 'fixed',
+            backgroundRepeat: 'no-repeat',
+            minHeight: '100vh',
             WebkitFontSmoothing: 'antialiased',
             MozOsxFontSmoothing: 'grayscale',
           },
+          '#root': { backgroundColor: 'transparent' },
           '::selection': { backgroundColor: BRAND.primaryLight },
         },
       },
@@ -172,9 +190,10 @@ export function buildTheme(mode: ThemeMode): Theme {
       MuiCard: {
         styleOverrides: {
           root: {
+            backgroundColor: '#FFFFFF',
             border: `1px solid ${v.border}`,
             borderRadius: 12,
-            boxShadow: '0 1px 3px rgba(23, 35, 30, 0.04)',
+            boxShadow: '0 1px 2px rgba(23, 35, 30, 0.06), 0 10px 28px rgba(23, 35, 30, 0.06)',
           },
         },
       },
@@ -193,6 +212,8 @@ export function buildTheme(mode: ThemeMode): Theme {
             backgroundColor: v.appBarBg,
             color: v.appBarText,
             borderBottom: `1px solid ${v.appBarBorder}`,
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
           },
         },
       },

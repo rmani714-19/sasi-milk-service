@@ -126,7 +126,16 @@ export function AppLayout() {
   const onMenuClick = () => (isMobile ? setMobileOpen(true) : setCollapsed((c) => !c));
 
   const drawerContent = (mini: boolean) => (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: 'background.paper' }}>
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        bgcolor: mode === 'evening' ? 'rgba(248, 245, 250, 0.82)' : 'rgba(255, 255, 255, 0.86)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+      }}
+    >
       <Box
         sx={{
           minHeight: 64,
@@ -233,7 +242,7 @@ export function AppLayout() {
   );
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
+    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'transparent' }}>
       <AppBar
         position="fixed"
         color="inherit"
@@ -356,7 +365,12 @@ export function AppLayout() {
           ModalProps={{ keepMounted: true }}
           sx={{
             display: { xs: 'block', md: 'none' },
-            '& .MuiDrawer-paper': { width: 'min(280px, 82vw)', borderRight: `1px solid ${PALETTE.border}` },
+            '& .MuiDrawer-paper': {
+              width: 'min(280px, 82vw)',
+              borderRight: `1px solid ${PALETTE.border}`,
+              backgroundColor: 'transparent',
+              backgroundImage: 'none',
+            },
           }}
         >
           {drawerContent(false)}
@@ -370,6 +384,8 @@ export function AppLayout() {
               width: railWidth,
               overflowX: 'hidden',
               borderRight: `1px solid ${PALETTE.border}`,
+              backgroundColor: 'transparent',
+              backgroundImage: 'none',
               transition: theme.transitions.create('width', {
                 duration: theme.transitions.duration.shorter,
               }),

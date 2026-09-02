@@ -7,10 +7,13 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { useAppTheme } from '../lib/appTheme';
+import { MODE_GRADIENTS } from '../theme';
 import { ErrorBox } from '../components/ui';
 
 export function LoginPage() {
   const { login } = useAuth();
+  const { mode } = useAppTheme();
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -35,7 +38,8 @@ export function LoginPage() {
         minHeight: '100vh',
         display: 'grid',
         placeItems: 'center',
-        bgcolor: 'primary.dark',
+        background: MODE_GRADIENTS[mode],
+        backgroundAttachment: 'fixed',
         p: 2,
       }}
     >
