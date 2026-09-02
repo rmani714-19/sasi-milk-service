@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link as RouterLink, Outlet, useLocation } from 'react-router-dom';
 import AppBar from '@mui/material/AppBar';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
 import Drawer from '@mui/material/Drawer';
@@ -12,7 +11,6 @@ import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
-import ListSubheader from '@mui/material/ListSubheader';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Toolbar from '@mui/material/Toolbar';
@@ -21,121 +19,65 @@ import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
 import MenuIcon from '@mui/icons-material/Menu';
-import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
+import MenuOpenIcon from '@mui/icons-material/MenuOpen';
 import LogoutIcon from '@mui/icons-material/Logout';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
 import CloudDoneIcon from '@mui/icons-material/CloudDone';
-import WbSunnyIcon from '@mui/icons-material/WbSunny';
-import DarkModeIcon from '@mui/icons-material/DarkMode';
-import DashboardIcon from '@mui/icons-material/SpaceDashboard';
-import LocalDrinkIcon from '@mui/icons-material/LocalDrink';
-import AgricultureIcon from '@mui/icons-material/Agriculture';
-import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
-import PriceChangeIcon from '@mui/icons-material/PriceChange';
-import RedeemIcon from '@mui/icons-material/Redeem';
-import RemoveCircleIcon from '@mui/icons-material/RemoveCircleOutline';
-import SavingsIcon from '@mui/icons-material/Savings';
-import AssessmentIcon from '@mui/icons-material/Assessment';
-import LocalShippingIcon from '@mui/icons-material/LocalShipping';
-import NotificationsIcon from '@mui/icons-material/NotificationsActive';
-import StoreIcon from '@mui/icons-material/Store';
-import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
-import TuneIcon from '@mui/icons-material/Tune';
+import WbSunnyOutlinedIcon from '@mui/icons-material/WbSunnyOutlined';
+import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
+import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
+import LocalDrinkOutlinedIcon from '@mui/icons-material/LocalDrinkOutlined';
+import PeopleOutlinedIcon from '@mui/icons-material/PeopleOutlined';
+import CardGiftcardOutlinedIcon from '@mui/icons-material/CardGiftcardOutlined';
+import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
+import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
+import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined';
+import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined';
+import AssessmentOutlinedIcon from '@mui/icons-material/AssessmentOutlined';
+import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
+import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
+import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined';
 import { useAuth } from '../lib/auth';
 import { useAppTheme } from '../lib/appTheme';
 import { usePendingSync } from '../lib/usePendingSync';
+import { PALETTE } from '../theme';
 
-interface Leaf {
+const NAV_FULL = 250;
+const NAV_MINI = 72;
+const COLLAPSE_KEY = 'sasi.navCollapsed';
+
+interface NavItem {
   to: string;
   label: string;
   icon: JSX.Element;
   perm?: string;
 }
-type NavNode =
-  | ({ kind: 'item' } & Leaf)
-  | { kind: 'menu'; label: string; icon: JSX.Element; children: Leaf[] };
 
-/** Grouped so the header stays readable — flat items + two dropdown menus. */
-const NAV: NavNode[] = [
-  { kind: 'item', to: '/', label: 'Dashboard', icon: <DashboardIcon />, perm: 'VIEW_DASHBOARD' },
-  { kind: 'item', to: '/collection', label: 'Milk Collection', icon: <LocalDrinkIcon />, perm: 'CREATE_COLLECTION' },
-  { kind: 'item', to: '/producers', label: 'Farmers', icon: <AgricultureIcon />, perm: 'VIEW_PRODUCERS' },
-  {
-    kind: 'menu',
-    label: 'Finance',
-    icon: <AccountBalanceWalletIcon />,
-    children: [
-      { to: '/rates', label: 'Milk Rate', icon: <PriceChangeIcon />, perm: 'MANAGE_RATES' },
-      { to: '/incentives', label: 'Incentives', icon: <RedeemIcon />, perm: 'MANAGE_INCENTIVES' },
-      { to: '/deductions', label: 'Deductions', icon: <RemoveCircleIcon />, perm: 'MANAGE_DEDUCTIONS' },
-      { to: '/advances', label: 'Advances', icon: <SavingsIcon />, perm: 'MANAGE_ADVANCES' },
-      { to: '/settlements', label: 'Payments', icon: <ReceiptLongIcon />, perm: 'GENERATE_SETTLEMENT' },
-    ],
-  },
-  { kind: 'item', to: '/reports', label: 'Reports', icon: <AssessmentIcon />, perm: 'VIEW_REPORTS' },
-  {
-    kind: 'menu',
-    label: 'Setup',
-    icon: <TuneIcon />,
-    children: [
-      { to: '/vehicles', label: 'Vehicles', icon: <LocalShippingIcon />, perm: 'VIEW_DASHBOARD' },
-      { to: '/notifications', label: 'Notifications', icon: <NotificationsIcon />, perm: 'ALL' },
-      { to: '/center', label: 'Centre', icon: <StoreIcon />, perm: 'MANAGE_RATES' },
-    ],
-  },
+const NAV: NavItem[] = [
+  { to: '/', label: 'Dashboard', icon: <DashboardOutlinedIcon />, perm: 'VIEW_DASHBOARD' },
+  { to: '/collection', label: 'Milk Collection', icon: <LocalDrinkOutlinedIcon />, perm: 'CREATE_COLLECTION' },
+  { to: '/producers', label: 'Producers', icon: <PeopleOutlinedIcon />, perm: 'VIEW_PRODUCERS' },
+  { to: '/incentives', label: 'Incentives', icon: <CardGiftcardOutlinedIcon />, perm: 'MANAGE_INCENTIVES' },
+  { to: '/deductions', label: 'Deductions', icon: <ReceiptLongOutlinedIcon />, perm: 'MANAGE_DEDUCTIONS' },
+  { to: '/advances', label: 'Advances', icon: <AccountBalanceWalletOutlinedIcon />, perm: 'MANAGE_ADVANCES' },
+  { to: '/rates', label: 'Rate Chart', icon: <TableChartOutlinedIcon />, perm: 'MANAGE_RATES' },
+  { to: '/settlements', label: 'Settlement', icon: <PaymentsOutlinedIcon />, perm: 'GENERATE_SETTLEMENT' },
+  { to: '/reports', label: 'Reports', icon: <AssessmentOutlinedIcon />, perm: 'VIEW_REPORTS' },
+  { to: '/vehicles', label: 'Vehicles', icon: <LocalShippingOutlinedIcon />, perm: 'VIEW_DASHBOARD' },
+  { to: '/center', label: 'My Center', icon: <BusinessOutlinedIcon />, perm: 'MANAGE_RATES' },
+  { to: '/notifications', label: 'Notifications', icon: <NotificationsNoneOutlinedIcon />, perm: 'ALL' },
 ];
 
 const isActive = (to: string, pathname: string) =>
   to === '/' ? pathname === '/' : pathname === to || pathname.startsWith(`${to}/`);
 
-const navButtonSx = (active: boolean) => ({
-  color: 'inherit',
-  minHeight: 64,
-  px: 1.5,
-  borderRadius: 0,
-  borderBottom: '2px solid',
-  borderColor: active ? 'currentColor' : 'transparent',
-  fontWeight: active ? 700 : 500,
-  whiteSpace: 'nowrap',
-  '& .MuiButton-startIcon': { mr: 0.75 },
-  '&:hover': { bgcolor: 'action.hover' },
-});
-
-function NavMenu({ label, icon, items, pathname }: { label: string; icon: JSX.Element; items: Leaf[]; pathname: string }) {
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const active = items.some((c) => isActive(c.to, pathname));
-  return (
-    <>
-      <Button
-        startIcon={icon}
-        endIcon={<ArrowDropDownIcon />}
-        onClick={(e: MouseEvent<HTMLElement>) => setAnchor(e.currentTarget)}
-        sx={navButtonSx(active)}
-      >
-        {label}
-      </Button>
-      <Menu
-        anchorEl={anchor}
-        open={!!anchor}
-        onClose={() => setAnchor(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-      >
-        {items.map((c) => (
-          <MenuItem
-            key={c.to}
-            component={RouterLink}
-            to={c.to}
-            selected={isActive(c.to, pathname)}
-            onClick={() => setAnchor(null)}
-          >
-            <ListItemIcon>{c.icon}</ListItemIcon>
-            <ListItemText>{c.label}</ListItemText>
-          </MenuItem>
-        ))}
-      </Menu>
-    </>
-  );
+function readCollapsed(): boolean | null {
+  try {
+    const v = localStorage.getItem(COLLAPSE_KEY);
+    return v == null ? null : v === '1';
+  } catch {
+    return null;
+  }
 }
 
 export function AppLayout() {
@@ -146,30 +88,31 @@ export function AppLayout() {
   const pathname = location.pathname;
   const { pending, online, syncing, sync } = usePendingSync();
 
-  const isCompact = useMediaQuery(theme.breakpoints.down('md')); // < 900px → hamburger + drawer
+  const isMobile = useMediaQuery(theme.breakpoints.down('md')); // < 900px → temporary drawer
+  const isLarge = useMediaQuery(theme.breakpoints.up('lg'));
+
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsed() ?? false);
   const [userAnchor, setUserAnchor] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (readCollapsed() == null) setCollapsed(!isLarge);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLarge]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed]);
 
   useEffect(() => setMobileOpen(false), [pathname]);
 
-  const nodes = useMemo<NavNode[]>(() => {
-    const out: NavNode[] = [];
-    for (const n of NAV) {
-      if (n.kind === 'item') {
-        if (!n.perm || can(n.perm)) out.push(n);
-      } else {
-        const children = n.children.filter((c) => !c.perm || can(c.perm));
-        if (children.length) out.push({ ...n, children });
-      }
-    }
-    return out;
-  }, [can]);
-
-  const leaves = useMemo(
-    () => nodes.flatMap((n) => (n.kind === 'item' ? [n as Leaf] : n.children)),
-    [nodes],
-  );
-  const currentLabel = leaves.find((l) => isActive(l.to, pathname))?.label ?? '';
+  const items = useMemo(() => NAV.filter((n) => !n.perm || can(n.perm)), [can]);
+  const railWidth = collapsed ? NAV_MINI : NAV_FULL;
+  const currentLabel = items.find((n) => isActive(n.to, pathname))?.label ?? '';
 
   const initials = (user?.fullName ?? '?')
     .split(/\s+/)
@@ -177,113 +120,143 @@ export function AppLayout() {
     .map((s) => s[0]?.toUpperCase())
     .join('');
 
-  const drawerNav = (
-    <Box sx={{ width: 'min(280px, 82vw)' }} role="navigation">
-      <Box sx={{ minHeight: 64, px: 2, display: 'flex', alignItems: 'center' }}>
+  const onMenuClick = () => (isMobile ? setMobileOpen(true) : setCollapsed((c) => !c));
+
+  const drawerContent = (mini: boolean) => (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', bgcolor: 'background.paper' }}>
+      <Box
+        sx={{
+          minHeight: 64,
+          px: mini ? 0 : 2.5,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: mini ? 'center' : 'flex-start',
+          gap: 1.25,
+          flexShrink: 0,
+        }}
+      >
         <Box
           component="img"
           src="/logo.png"
           alt="Sasi Dairy Farm"
           onError={(e) => {
             (e.currentTarget as HTMLImageElement).style.display = 'none';
-            (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty('display', 'inline');
+            (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty('display', 'block');
           }}
-          sx={{ height: 40, width: 'auto', display: 'block' }}
+          sx={{ height: mini ? 34 : 40, width: 'auto', display: 'block', flexShrink: 0 }}
         />
-        <Typography color="primary" sx={{ display: 'none', fontWeight: 700 }}>
-          SASI
-        </Typography>
+        {!mini && (
+          <Typography
+            sx={{ fontWeight: 700, fontSize: '0.9375rem', color: 'primary.dark', lineHeight: 1.15 }}
+          >
+            SASI MILK
+            <br />
+            SERVICE
+          </Typography>
+        )}
       </Box>
       <Divider />
-      <List>
-        {nodes.map((n) =>
-          n.kind === 'item' ? (
-            <ListItemButton
-              key={n.to}
-              component={RouterLink}
-              to={n.to}
-              selected={isActive(n.to, pathname)}
-              sx={{ borderRadius: 2, mx: 1, mb: 0.5 }}
-            >
-              <ListItemIcon sx={{ minWidth: 40 }}>{n.icon}</ListItemIcon>
-              <ListItemText primary={n.label} />
-            </ListItemButton>
-          ) : (
-            <Box key={n.label}>
-              <ListSubheader disableSticky sx={{ bgcolor: 'transparent', lineHeight: '32px' }}>
-                {n.label}
-              </ListSubheader>
-              {n.children.map((c) => (
-                <ListItemButton
-                  key={c.to}
-                  component={RouterLink}
-                  to={c.to}
-                  selected={isActive(c.to, pathname)}
-                  sx={{ borderRadius: 2, mx: 1, mb: 0.5 }}
+
+      <List sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', px: mini ? 0.75 : 1.25, py: 1.5 }}>
+        {items.map((n) => {
+          const active = isActive(n.to, pathname);
+          return (
+            <Tooltip key={n.to} title={mini ? n.label : ''} placement="right" arrow>
+              <ListItemButton
+                component={RouterLink}
+                to={n.to}
+                disableRipple
+                sx={{
+                  borderRadius: '10px',
+                  minHeight: 44,
+                  mb: 0.5,
+                  px: mini ? 0 : 1.5,
+                  justifyContent: mini ? 'center' : 'flex-start',
+                  color: active ? 'primary.main' : 'text.secondary',
+                  bgcolor: active ? PALETTE.primaryLight : 'transparent',
+                  fontWeight: active ? 600 : 500,
+                  '&:hover': { bgcolor: active ? PALETTE.primaryLight : PALETTE.surfaceAlt },
+                }}
+              >
+                <ListItemIcon
+                  sx={{
+                    minWidth: 0,
+                    mr: mini ? 0 : 1.75,
+                    justifyContent: 'center',
+                    color: 'inherit',
+                    '& svg': { fontSize: 22 },
+                  }}
                 >
-                  <ListItemIcon sx={{ minWidth: 40 }}>{c.icon}</ListItemIcon>
-                  <ListItemText primary={c.label} />
-                </ListItemButton>
-              ))}
-            </Box>
-          ),
-        )}
+                  {n.icon}
+                </ListItemIcon>
+                {!mini && (
+                  <ListItemText
+                    primary={n.label}
+                    primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 'inherit' }}
+                  />
+                )}
+              </ListItemButton>
+            </Tooltip>
+          );
+        })}
       </List>
+
       <Divider />
-      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: 13 }}>{initials}</Avatar>
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="body2" fontWeight={600} noWrap>
-            {user?.fullName}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" noWrap>
-            {user?.username}
-          </Typography>
-        </Box>
+      <Box
+        sx={{
+          p: mini ? 1 : 2,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1.5,
+          justifyContent: mini ? 'center' : 'flex-start',
+          flexShrink: 0,
+        }}
+      >
+        <Avatar sx={{ width: 34, height: 34, bgcolor: 'primary.main', fontSize: 13, fontWeight: 700 }}>
+          {initials}
+        </Avatar>
+        {!mini && (
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="body2" fontWeight={600} noWrap>
+              {user?.fullName}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {user?.username}
+            </Typography>
+          </Box>
+        )}
       </Box>
     </Box>
   );
 
   return (
-    <Box sx={{ minHeight: '100vh' }}>
-      <AppBar position="fixed" color="inherit" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}>
-        <Toolbar sx={{ gap: 0.5 }}>
-          {isCompact && (
-            <IconButton edge="start" onClick={() => setMobileOpen(true)} aria-label="open navigation" sx={{ mr: 0.5 }}>
-              <MenuIcon />
-            </IconButton>
-          )}
+    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
+      <AppBar
+        position="fixed"
+        color="inherit"
+        elevation={0}
+        sx={{
+          width: { md: `calc(100% - ${railWidth}px)` },
+          ml: { md: `${railWidth}px` },
+          transition: theme.transitions.create(['width', 'margin'], {
+            duration: theme.transitions.duration.shorter,
+          }),
+        }}
+      >
+        <Toolbar sx={{ gap: 1, minHeight: 64 }}>
+          <IconButton edge="start" onClick={onMenuClick} aria-label="toggle navigation" color="inherit">
+            {isMobile || collapsed ? <MenuIcon /> : <MenuOpenIcon />}
+          </IconButton>
           <Box
             component="img"
             src="/logo.png"
-            alt="Sasi Dairy Farm"
+            alt=""
             onError={(e) => ((e.currentTarget as HTMLImageElement).style.display = 'none')}
-            sx={{ height: 36, width: 'auto', mr: 1, flexShrink: 0 }}
+            sx={{ display: { xs: 'block', md: 'none' }, height: 30, mr: 0.5 }}
           />
-
-          {isCompact ? (
-            <Typography variant="h6" noWrap sx={{ flex: 1 }}>
-              {currentLabel}
-            </Typography>
-          ) : (
-            <Box sx={{ display: 'flex', alignItems: 'stretch', flex: 1, ml: 1, overflowX: 'auto' }}>
-              {nodes.map((n) =>
-                n.kind === 'item' ? (
-                  <Button
-                    key={n.to}
-                    component={RouterLink}
-                    to={n.to}
-                    startIcon={n.icon}
-                    sx={navButtonSx(isActive(n.to, pathname))}
-                  >
-                    {n.label}
-                  </Button>
-                ) : (
-                  <NavMenu key={n.label} label={n.label} icon={n.icon} items={n.children} pathname={pathname} />
-                ),
-              )}
-            </Box>
-          )}
+          <Typography variant="h6" sx={{ flex: 1, fontWeight: 600 }} noWrap>
+            {currentLabel}
+          </Typography>
 
           {pending > 0 && (
             <Tooltip title={online ? 'Tap to sync now' : 'Offline — will sync when back online'}>
@@ -291,23 +264,32 @@ export function AppLayout() {
                 size="small"
                 color={online ? 'warning' : 'default'}
                 icon={online ? <CloudDoneIcon /> : <CloudOffIcon />}
-                label={syncing ? 'Syncing…' : `${pending}`}
+                label={syncing ? 'Syncing…' : `${pending} queued`}
                 onClick={() => online && sync()}
-                sx={{ mr: 0.5 }}
               />
             </Tooltip>
           )}
-          {pending === 0 && !online && <Chip size="small" icon={<CloudOffIcon />} label="Offline" sx={{ mr: 0.5 }} />}
+          {pending === 0 && !online && <Chip size="small" icon={<CloudOffIcon />} label="Offline" />}
+
+          {can('ALL') && (
+            <Tooltip title="Notifications">
+              <IconButton component={RouterLink} to="/notifications" color="inherit" aria-label="notifications">
+                <NotificationsNoneOutlinedIcon />
+              </IconButton>
+            </Tooltip>
+          )}
 
           <Tooltip title={`${mode === 'morning' ? 'Morning' : 'Evening'} theme${auto ? ' (auto)' : ''} — tap to switch`}>
-            <IconButton color="inherit" onClick={toggle}>
-              {mode === 'morning' ? <WbSunnyIcon /> : <DarkModeIcon />}
+            <IconButton color="inherit" onClick={toggle} aria-label="switch theme">
+              {mode === 'morning' ? <WbSunnyOutlinedIcon /> : <DarkModeOutlinedIcon />}
             </IconButton>
           </Tooltip>
 
           <Tooltip title={user?.fullName ?? 'Account'}>
-            <IconButton onClick={(e) => setUserAnchor(e.currentTarget)} sx={{ ml: 0.5 }} aria-label="account menu">
-              <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: 13 }}>{initials}</Avatar>
+            <IconButton onClick={(e) => setUserAnchor(e.currentTarget)} sx={{ ml: 0.25 }} aria-label="account menu">
+              <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: 13, fontWeight: 700 }}>
+                {initials}
+              </Avatar>
             </IconButton>
           </Tooltip>
           <Menu
@@ -341,18 +323,48 @@ export function AppLayout() {
         </Toolbar>
       </AppBar>
 
-      <Drawer
-        variant="temporary"
-        open={mobileOpen}
-        onClose={() => setMobileOpen(false)}
-        ModalProps={{ keepMounted: true }}
-        sx={{ display: { md: 'none' }, '& .MuiDrawer-paper': { width: 'min(280px, 82vw)' } }}
-      >
-        {drawerNav}
-      </Drawer>
+      <Box component="nav" sx={{ width: { md: railWidth }, flexShrink: { md: 0 } }}>
+        <Drawer
+          variant="temporary"
+          open={mobileOpen}
+          onClose={() => setMobileOpen(false)}
+          ModalProps={{ keepMounted: true }}
+          sx={{
+            display: { xs: 'block', md: 'none' },
+            '& .MuiDrawer-paper': { width: 'min(280px, 82vw)', borderRight: `1px solid ${PALETTE.border}` },
+          }}
+        >
+          {drawerContent(false)}
+        </Drawer>
+        <Drawer
+          variant="permanent"
+          open
+          sx={{
+            display: { xs: 'none', md: 'block' },
+            '& .MuiDrawer-paper': {
+              width: railWidth,
+              overflowX: 'hidden',
+              borderRight: `1px solid ${PALETTE.border}`,
+              transition: theme.transitions.create('width', {
+                duration: theme.transitions.duration.shorter,
+              }),
+            },
+          }}
+        >
+          {drawerContent(collapsed)}
+        </Drawer>
+      </Box>
 
-      <Box component="main" sx={{ p: { xs: 2, md: 3 } }}>
-        <Toolbar />
+      <Box
+        component="main"
+        sx={{
+          flexGrow: 1,
+          width: { md: `calc(100% - ${railWidth}px)` },
+          p: { xs: 2, md: 3 },
+          transition: theme.transitions.create('width', { duration: theme.transitions.duration.shorter }),
+        }}
+      >
+        <Toolbar sx={{ minHeight: 64 }} />
         <Outlet />
       </Box>
     </Box>
