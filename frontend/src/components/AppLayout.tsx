@@ -70,27 +70,44 @@ export function AppLayout() {
 
   const items = NAV.filter((n) => !n.perm || can(n.perm));
 
+  const brandMark = (
+    <>
+      <Box
+        component="img"
+        src="/logo.png"
+        alt="Sasi Dairy Farm"
+        onError={(e) => {
+          (e.currentTarget as HTMLImageElement).style.display = 'none';
+          (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty('display', 'inline');
+        }}
+        sx={{ height: 34, width: 'auto', display: 'block' }}
+      />
+      <Typography variant="subtitle2" color="inherit" sx={{ display: 'none', fontWeight: 700 }}>
+        SASI MILK SERVICE
+      </Typography>
+    </>
+  );
+
   const drawer = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Box sx={{ px: 2, pt: 2, pb: 1.5, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+      {/* pinned: stays put while the nav list scrolls */}
+      <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, flexShrink: 0 }}>
         <Box
           component="img"
           src="/logo.png"
           alt="Sasi Dairy Farm"
           onError={(e) => {
             (e.currentTarget as HTMLImageElement).style.display = 'none';
-            (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty('display', 'block');
+            (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty('display', 'inline');
           }}
-          sx={{ width: '100%', maxWidth: 148, height: 'auto', display: 'block' }}
+          sx={{ height: 52, width: 'auto', display: 'block' }}
         />
-        <Typography variant="h6" color="primary" align="center" sx={{ display: 'none', lineHeight: 1.2 }}>
-          SASI MILK
-          <br />
-          SERVICE
+        <Typography color="primary" sx={{ display: 'none', fontWeight: 700, lineHeight: 1.1 }}>
+          SASI MILK SERVICE
         </Typography>
       </Box>
       <Divider />
-      <List sx={{ flex: 1, py: 1 }}>
+      <List sx={{ flex: 1, minHeight: 0, overflowY: 'auto', py: 1 }}>
         {items.map((n) => (
           <ListItemButton
             key={n.to}
@@ -105,7 +122,7 @@ export function AppLayout() {
         ))}
       </List>
       <Divider />
-      <Box sx={{ p: 2 }}>
+      <Box sx={{ p: 2, flexShrink: 0 }}>
         <Typography variant="body2" fontWeight={600}>
           {user?.fullName}
         </Typography>
@@ -128,6 +145,8 @@ export function AppLayout() {
           <IconButton edge="start" onClick={() => setMobileOpen(true)} sx={{ mr: 1, display: { md: 'none' } }}>
             <MenuIcon />
           </IconButton>
+          {/* small, always visible, fixed with the top bar */}
+          <Box sx={{ display: { xs: 'flex', md: 'none' }, alignItems: 'center', mr: 1.5 }}>{brandMark}</Box>
           <Typography variant="h6" sx={{ flex: 1 }} noWrap>
             {items.find((n) => (n.to === '/' ? location.pathname === '/' : location.pathname.startsWith(n.to)))?.label ?? ''}
           </Typography>
