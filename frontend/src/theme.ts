@@ -49,32 +49,52 @@ interface Variant {
   badgeText: string;
 }
 
-const VARIANTS: Record<ThemeMode, Variant> = {
-  // sunrise — gold at the top, warming to a soft cream where the content sits
+interface ModeAccents {
+  navBg: string;
+  navActiveBg: string;
+  navActiveFg: string;
+  navHoverBg: string;
+  badgeBg: string;
+  badgeText: string;
+  label: string;
+}
+
+const VARIANTS: Record<ThemeMode, Variant & ModeAccents> = {
+  // day — sky blue overhead with a yellow sun-glow at the horizon
   morning: {
-    pageBg: '#F8F5EE',
+    pageBg: '#F6F8F5',
     pageGradient:
-      'linear-gradient(180deg, #F7A828 0%, #FFC94D 5%, #FFDA79 10%, #FFE7AC 15%, #FBEFDF 24%, #F9F5EE 40%, #F8F5EE 100%)',
-    paper: '#FFFFFF',
-    border: '#EBE6DA',
-    appBarBg: 'rgba(255, 251, 240, 0.72)',
+      'linear-gradient(180deg, #2E9FDE 0%, #6FB9E7 6%, #ADD8EF 12%, #E6EFE0 18%, #FCE7A6 24%, #FBF2CE 33%, #F7F8F2 55%, #F6F8F5 100%)',
+    paper: '#EAF3FB',
+    border: '#D2E3EF',
+    appBarBg: 'rgba(224, 240, 251, 0.72)',
     appBarText: BRAND.textPrimary,
-    appBarBorder: 'rgba(196, 160, 90, 0.35)',
-    badgeBg: '#FFF3D6',
-    badgeText: '#8A6500',
+    appBarBorder: 'rgba(90, 150, 195, 0.30)',
+    navBg: 'rgba(233, 243, 251, 0.88)',
+    navActiveBg: '#D7EBF8',
+    navActiveFg: '#1B6C9E',
+    navHoverBg: '#E7F1F8',
+    badgeBg: '#FFDD6B',
+    badgeText: '#7A5B00',
+    label: 'Morning shift',
   },
-  // dusk — deep indigo/magenta sky at the top, resolving to a calm lilac below
+  // dusk — burnt orange sky up top settling into warm brown / tan
   evening: {
-    pageBg: '#EFEBF3',
+    pageBg: '#EFE9E1',
     pageGradient:
-      'linear-gradient(180deg, #241B4A 0%, #3F2A6B 4%, #6E4485 8%, #B587AE 13%, #DFCFE0 18%, #EFE7F1 26%, #EFEBF3 100%)',
-    paper: '#F8F5FA',
-    border: '#DAD1E1',
-    appBarBg: 'rgba(28, 20, 54, 0.55)',
-    appBarText: '#F1ECF7',
+      'linear-gradient(180deg, #E8781F 0%, #C9611F 4%, #97481F 8%, #7B4A31 12%, #B08862 17%, #DAC8B2 24%, #ECE5DB 40%, #EFE9E1 100%)',
+    paper: '#F4E9DD',
+    border: '#DDCAB4',
+    appBarBg: 'rgba(84, 47, 26, 0.55)',
+    appBarText: '#F7EFE6',
     appBarBorder: 'rgba(255, 255, 255, 0.14)',
-    badgeBg: 'rgba(255,255,255,0.18)',
-    badgeText: '#F1ECF7',
+    navBg: 'rgba(244, 233, 221, 0.88)',
+    navActiveBg: '#EEDDCA',
+    navActiveFg: '#8A4A1E',
+    navHoverBg: '#F0E6D9',
+    badgeBg: 'rgba(255, 255, 255, 0.20)',
+    badgeText: '#F7EFE6',
+    label: 'Evening shift',
   },
 };
 
@@ -94,10 +114,26 @@ export const STATUS_TOKENS: Record<string, { bg: string; fg: string }> = {
   neutral: { bg: '#F1F5F3', fg: '#5F6F68' },
 };
 
-/** Per-mode accents consumed by the layout (shift badge, page ground). */
-export const MODE_STYLES: Record<ThemeMode, { badgeBg: string; badgeText: string; label: string }> = {
-  morning: { badgeBg: VARIANTS.morning.badgeBg, badgeText: VARIANTS.morning.badgeText, label: 'Morning shift' },
-  evening: { badgeBg: VARIANTS.evening.badgeBg, badgeText: VARIANTS.evening.badgeText, label: 'Evening shift' },
+/** Per-mode accents consumed by the layout (shift badge + sidebar skin). */
+export const MODE_STYLES: Record<ThemeMode, ModeAccents> = {
+  morning: {
+    navBg: VARIANTS.morning.navBg,
+    navActiveBg: VARIANTS.morning.navActiveBg,
+    navActiveFg: VARIANTS.morning.navActiveFg,
+    navHoverBg: VARIANTS.morning.navHoverBg,
+    badgeBg: VARIANTS.morning.badgeBg,
+    badgeText: VARIANTS.morning.badgeText,
+    label: VARIANTS.morning.label,
+  },
+  evening: {
+    navBg: VARIANTS.evening.navBg,
+    navActiveBg: VARIANTS.evening.navActiveBg,
+    navActiveFg: VARIANTS.evening.navActiveFg,
+    navHoverBg: VARIANTS.evening.navHoverBg,
+    badgeBg: VARIANTS.evening.badgeBg,
+    badgeText: VARIANTS.evening.badgeText,
+    label: VARIANTS.evening.label,
+  },
 };
 
 export function buildTheme(mode: ThemeMode): Theme {

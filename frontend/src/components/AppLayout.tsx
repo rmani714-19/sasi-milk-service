@@ -125,13 +125,15 @@ export function AppLayout() {
 
   const onMenuClick = () => (isMobile ? setMobileOpen(true) : setCollapsed((c) => !c));
 
+  const nav = MODE_STYLES[mode];
+
   const drawerContent = (mini: boolean) => (
     <Box
       sx={{
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        bgcolor: mode === 'evening' ? 'rgba(248, 245, 250, 0.82)' : 'rgba(255, 255, 255, 0.86)',
+        bgcolor: nav.navBg,
         backdropFilter: 'blur(12px)',
         WebkitBackdropFilter: 'blur(12px)',
       }}
@@ -184,10 +186,10 @@ export function AppLayout() {
                   mb: 0.5,
                   px: mini ? 0 : 1.5,
                   justifyContent: mini ? 'center' : 'flex-start',
-                  color: active ? 'primary.main' : 'text.secondary',
-                  bgcolor: active ? PALETTE.primaryLight : 'transparent',
+                  color: active ? nav.navActiveFg : 'text.secondary',
+                  bgcolor: active ? nav.navActiveBg : 'transparent',
                   fontWeight: active ? 600 : 500,
-                  '&:hover': { bgcolor: active ? PALETTE.primaryLight : PALETTE.surfaceAlt },
+                  '&:hover': { bgcolor: active ? nav.navActiveBg : nav.navHoverBg },
                 }}
               >
                 <ListItemIcon

@@ -3,15 +3,18 @@ package com.sasimilkservice.report.export;
 import com.lowagie.text.Document;
 import com.lowagie.text.Element;
 import com.lowagie.text.Font;
+import com.lowagie.text.Image;
 import com.lowagie.text.PageSize;
 import com.lowagie.text.Paragraph;
 import com.lowagie.text.Phrase;
+import com.lowagie.text.Rectangle;
 import com.lowagie.text.pdf.PdfPCell;
 import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfWriter;
 import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.ClientAnchor;
 import org.apache.poi.ss.usermodel.FillPatternType;
 import org.apache.poi.ss.usermodel.HorizontalAlignment;
 import org.apache.poi.ss.usermodel.IndexedColors;
@@ -20,10 +23,13 @@ import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -34,8 +40,21 @@ import java.util.List;
 @Component
 public class ReportExporter {
 
+    private static final Logger log = LoggerFactory.getLogger(ReportExporter.class);
     private static final Color BRAND_GREEN = new Color(0x2F, 0x7D, 0x33);
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm");
+
+    /** Brand logo bundled at src/main/resources/report-logo.png (null when absent). */
+    private static final byte[] LOGO = loadLogo();
+
+    private static byte[] loadLogo() {
+        try (InputStream in = ReportExporter.class.getClassLoader().getResourceAsStream("report-logo.png")) {
+            return in == null ? null : in.readAllBytes();
+        } catch (Exception e) {
+            log.warn("report-logo.png could not be read; exports will have no logo", e);
+            return null;
+        }
+    }
 
     // ---------------------------------------------------------------- CSV
 
@@ -90,17 +109,40 @@ public class ReportExporter {
             numStyle.setDataFormat(wb.createDataFormat().getFormat("#,##0.00"));
 
             int rowIdx = 0;
+
+            // brand letterhead — floating logo pinned top-left, text starts below it
+            if (LOGO != null) {
+                try {
+                    int picIdx = wb.addPicture(LOGO, Workbook.PICTURE_TYPE_PNG);
+                    ClientAnchor anchor = wb.getCreationHelper().createClientAnchor();
+                    anchor.setAnchorType(ClientAnchor.AnchorType.DONT_MOVE_AND_RESIZE);
+                    anchor.setCol1(0);
+                    anchor.setRow1(0);
+                    anchor.setCol2(2);
+                    anchor.setRow2(4);
+                    sheet.createDrawingPatriarch().createPicture(anchor, picIdx);
+                    for (int i = 0; i < 4; i++) {
+                        sheet.createRow(i).setHeightInPoints(16);
+                    }
+                    rowIdx = 4;
+                } catch (Exception e) {
+                    log.warn("could not embed logo in xlsx", e);
+                }
+            }
+
+            int titleRow = rowIdx;
             Row title = sheet.createRow(rowIdx++);
             title.createCell(0).setCellValue(r.title());
             title.getCell(0).setCellStyle(titleStyle);
             if (col > 1) {
-                sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, col - 1));
+                sheet.addMergedRegion(new CellRangeAddress(titleRow, titleRow, 0, col - 1));
             }
             if (r.subtitle() != null && !r.subtitle().isBlank()) {
+                int subRow = rowIdx;
                 Row sub = sheet.createRow(rowIdx++);
                 sub.createCell(0).setCellValue(r.subtitle());
                 if (col > 1) {
-                    sheet.addMergedRegion(new CellRangeAddress(1, 1, 0, col - 1));
+                    sheet.addMergedRegion(new CellRangeAddress(subRow, subRow, 0, col - 1));
                 }
             }
             rowIdx++;
@@ -147,15 +189,41 @@ public class ReportExporter {
             Font brand = new Font(Font.HELVETICA, 16, Font.BOLD, BRAND_GREEN);
             Font h1 = new Font(Font.HELVETICA, 12, Font.BOLD);
             Font small = new Font(Font.HELVETICA, 8, Font.NORMAL, Color.GRAY);
+            String name = centerName == null ? "SASI MILK SERVICE" : centerName;
 
-            Paragraph name = new Paragraph(centerName == null ? "SASI MILK SERVICE" : centerName, brand);
-            name.setSpacingAfter(2);
-            doc.add(name);
-            doc.add(new Paragraph(r.title(), h1));
-            if (r.subtitle() != null && !r.subtitle().isBlank()) {
-                doc.add(new Paragraph(r.subtitle(), small));
+            Image logo = logoImage();
+            if (logo != null) {
+                logo.scaleToFit(116, 48);
+                PdfPTable head = new PdfPTable(new float[] {1f, 6f});
+                head.setWidthPercentage(100);
+                head.getDefaultCell().setBorder(Rectangle.NO_BORDER);
+
+                PdfPCell logoCell = new PdfPCell(logo, false);
+                logoCell.setBorder(Rectangle.NO_BORDER);
+                logoCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+                head.addCell(logoCell);
+
+                PdfPCell textCell = new PdfPCell();
+                textCell.setBorder(Rectangle.NO_BORDER);
+                textCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+                textCell.addElement(new Paragraph(name, brand));
+                textCell.addElement(new Paragraph(r.title(), h1));
+                if (r.subtitle() != null && !r.subtitle().isBlank()) {
+                    textCell.addElement(new Paragraph(r.subtitle(), small));
+                }
+                head.addCell(textCell);
+                head.setSpacingAfter(10);
+                doc.add(head);
+            } else {
+                Paragraph nameP = new Paragraph(name, brand);
+                nameP.setSpacingAfter(2);
+                doc.add(nameP);
+                doc.add(new Paragraph(r.title(), h1));
+                if (r.subtitle() != null && !r.subtitle().isBlank()) {
+                    doc.add(new Paragraph(r.subtitle(), small));
+                }
+                doc.add(new Paragraph(" "));
             }
-            doc.add(new Paragraph(" "));
 
             PdfPTable table = new PdfPTable(r.headers().size());
             table.setWidthPercentage(100);
@@ -192,6 +260,18 @@ public class ReportExporter {
             return out.toByteArray();
         } catch (Exception e) {
             throw new IllegalStateException("pdf export failed", e);
+        }
+    }
+
+    private static Image logoImage() {
+        if (LOGO == null) {
+            return null;
+        }
+        try {
+            return Image.getInstance(LOGO);
+        } catch (Exception e) {
+            log.warn("could not decode logo for pdf", e);
+            return null;
         }
     }
 

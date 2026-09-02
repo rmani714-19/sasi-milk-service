@@ -3,6 +3,8 @@ import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Stack from '@mui/material/Stack';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tab from '@mui/material/Tab';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -18,31 +20,75 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { downloadFile } from '../api/common';
-import { litres, money, today } from '../lib/format';
+import { litres, money } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
 import { ProducerPicker } from '../components/ProducerPicker';
 import { useToast } from '../components/ui';
 import type { Producer } from '../api/types';
 
-const monthAgo = () => {
-  const d = new Date();
-  d.setDate(d.getDate() - 30);
-  return d.toISOString().slice(0, 10);
-};
+const iso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+type Period = 'week' | 'month' | 'year' | 'custom';
+
+function periodRange(p: Exclude<Period, 'custom'>): { from: string; to: string } {
+  const now = new Date();
+  if (p === 'week') {
+    const day = (now.getDay() + 6) % 7; // Mon = 0
+    const start = new Date(now);
+    start.setDate(now.getDate() - day);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return { from: iso(start), to: iso(end) };
+  }
+  if (p === 'month') {
+    return {
+      from: iso(new Date(now.getFullYear(), now.getMonth(), 1)),
+      to: iso(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+    };
+  }
+  return { from: `${now.getFullYear()}-01-01`, to: `${now.getFullYear()}-12-31` };
+}
 
 export function ReportsPage() {
   const [tab, setTab] = useState(0);
-  const [from, setFrom] = useState(monthAgo());
-  const [to, setTo] = useState(today());
+  const [period, setPeriod] = useState<Period>('month');
+  const [{ from, to }, setRange] = useState(periodRange('month'));
+
+  const applyPeriod = (p: Period) => {
+    setPeriod(p);
+    if (p !== 'custom') setRange(periodRange(p));
+  };
+  const setFrom = (v: string) => {
+    setPeriod('custom');
+    setRange((r) => ({ ...r, from: v }));
+  };
+  const setTo = (v: string) => {
+    setPeriod('custom');
+    setRange((r) => ({ ...r, to: v }));
+  };
 
   return (
     <>
       <PageHeader title="Reports" subtitle="Collection and settlement summaries — export to PDF, Excel or CSV" />
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <TextField label="From" type="date" value={from} onChange={(e) => setFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
-            <TextField label="To" type="date" value={to} onChange={(e) => setTo(e.target.value)} InputLabelProps={{ shrink: true }} />
+          <Stack spacing={2}>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={period}
+              onChange={(_, v: Period | null) => v && applyPeriod(v)}
+            >
+              <ToggleButton value="week">This week</ToggleButton>
+              <ToggleButton value="month">This month</ToggleButton>
+              <ToggleButton value="year">This year</ToggleButton>
+              <ToggleButton value="custom">Custom</ToggleButton>
+            </ToggleButtonGroup>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField label="From" type="date" value={from} onChange={(e) => setFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
+              <TextField label="To" type="date" value={to} onChange={(e) => setTo(e.target.value)} InputLabelProps={{ shrink: true }} />
+            </Stack>
           </Stack>
         </CardContent>
       </Card>
