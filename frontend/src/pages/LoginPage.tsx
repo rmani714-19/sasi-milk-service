@@ -40,10 +40,22 @@ export function LoginPage() {
       }}
     >
       <Paper sx={{ p: 4, width: '100%', maxWidth: 380 }} elevation={6}>
-        <Typography variant="h5" color="primary" gutterBottom>
-          SASI MILK SERVICE
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        <Box sx={{ textAlign: 'center', mb: 2 }}>
+          <Box
+            component="img"
+            src="/logo.png"
+            alt="Sasi Dairy Farm"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = 'none';
+              (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty('display', 'block');
+            }}
+            sx={{ maxWidth: 180, maxHeight: 140, objectFit: 'contain' }}
+          />
+          <Typography variant="h5" color="primary" sx={{ display: 'none' }}>
+            SASI MILK SERVICE
+          </Typography>
+        </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3, textAlign: 'center' }}>
           Sign in to continue
         </Typography>
         <form onSubmit={submit}>

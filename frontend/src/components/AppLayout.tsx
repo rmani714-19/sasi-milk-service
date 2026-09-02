@@ -72,9 +72,19 @@ export function AppLayout() {
 
   const drawer = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Toolbar sx={{ px: 2 }}>
-        <Typography variant="h6" color="primary" noWrap>
-          SASI MILK
+      <Toolbar sx={{ px: 2, py: 1.5, justifyContent: 'center' }}>
+        <Box
+          component="img"
+          src="/logo.png"
+          alt="Sasi Dairy Farm"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = 'none';
+            (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty('display', 'block');
+          }}
+          sx={{ maxWidth: '100%', maxHeight: 88, objectFit: 'contain' }}
+        />
+        <Typography variant="h6" color="primary" noWrap sx={{ display: 'none' }}>
+          SASI MILK SERVICE
         </Typography>
       </Toolbar>
       <Divider />

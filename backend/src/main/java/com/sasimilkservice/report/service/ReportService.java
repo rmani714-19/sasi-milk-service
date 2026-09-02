@@ -25,6 +25,14 @@ public class ReportService {
         this.jdbc = jdbc;
     }
 
+    public String centerName() {
+        try {
+            return jdbc.queryForObject("select center_name from center order by id limit 1", String.class);
+        } catch (RuntimeException e) {
+            return "SASI MILK SERVICE";
+        }
+    }
+
     public List<DailyCollectionRow> dailyCollection(LocalDate from, LocalDate to) {
         return jdbc.query("""
                 select collection_date,

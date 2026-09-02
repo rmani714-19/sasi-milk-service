@@ -10,10 +10,12 @@ export function useRegions() {
   });
 }
 
-/** Fetch a CSV report with auth and trigger a browser download. */
-export async function downloadCsv(url: string, filename: string) {
+/** Fetch a file (report export etc.) with auth and trigger a browser download. */
+export async function downloadFile(url: string, filename: string) {
   const res = await api.get(url, { responseType: 'blob' });
-  const blob = new Blob([res.data], { type: 'text/csv' });
+  const blob = new Blob([res.data], {
+    type: (res.headers as Record<string, string>)['content-type'] || 'application/octet-stream',
+  });
   const href = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = href;

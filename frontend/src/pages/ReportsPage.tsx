@@ -11,10 +11,13 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
-import DownloadIcon from '@mui/icons-material/Download';
+import ButtonGroup from '@mui/material/ButtonGroup';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import GridOnIcon from '@mui/icons-material/GridOn';
+import DescriptionIcon from '@mui/icons-material/Description';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { downloadCsv } from '../api/common';
+import { downloadFile } from '../api/common';
 import { litres, money, today } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
 import { ProducerPicker } from '../components/ProducerPicker';
@@ -57,17 +60,24 @@ export function ReportsPage() {
   );
 }
 
-function CsvButton({ url, name }: { url: string; name: string }) {
+/** base = report URL without a format param; name = filename without extension */
+function ExportButtons({ base, name }: { base: string; name: string }) {
   const toast = useToast();
+  const sep = base.includes('?') ? '&' : '?';
+  const go = (fmt: string, ext: string) =>
+    downloadFile(`${base}${sep}format=${fmt}`, `${name}.${ext}`).catch(toast.fromError);
   return (
-    <Button
-      size="small"
-      startIcon={<DownloadIcon />}
-      onClick={() => downloadCsv(url, name).catch(toast.fromError)}
-      sx={{ mb: 1 }}
-    >
-      CSV
-    </Button>
+    <ButtonGroup size="small" variant="outlined" sx={{ mb: 1 }}>
+      <Button startIcon={<PictureAsPdfIcon />} onClick={() => go('pdf', 'pdf')}>
+        PDF
+      </Button>
+      <Button startIcon={<GridOnIcon />} onClick={() => go('xlsx', 'xlsx')}>
+        Excel
+      </Button>
+      <Button startIcon={<DescriptionIcon />} onClick={() => go('csv', 'csv')}>
+        CSV
+      </Button>
+    </ButtonGroup>
   );
 }
 
@@ -79,7 +89,7 @@ function DailyCollection({ from, to }: { from: string; to: string }) {
   });
   return (
     <>
-      <CsvButton url={`/reports/daily-collection?from=${from}&to=${to}&format=csv`} name="daily-collection.csv" />
+      <ExportButtons base={`/reports/daily-collection?from=${from}&to=${to}`} name="daily-collection" />
       <Card sx={{ overflowX: 'auto' }}>
         <Table size="small">
           <TableHead>
@@ -120,7 +130,7 @@ function RegionReport({ from, to }: { from: string; to: string }) {
   });
   return (
     <>
-      <CsvButton url={`/reports/region?from=${from}&to=${to}&format=csv`} name="region-report.csv" />
+      <ExportButtons base={`/reports/region?from=${from}&to=${to}`} name="region-report" />
       <Card sx={{ overflowX: 'auto' }}>
         <Table size="small">
           <TableHead>
@@ -164,6 +174,12 @@ function ProducerStatement({ from, to }: { from: string; to: string }) {
   return (
     <Stack spacing={2}>
       <ProducerPicker value={producer} onChange={setProducer} />
+      {producer && (
+        <ExportButtons
+          base={`/reports/producer-statement?producerId=${producer.id}&from=${from}&to=${to}`}
+          name={`farmer-${producer.producerNumber}-statement`}
+        />
+      )}
       {q.data && (
         <Card>
           <Table size="small">
