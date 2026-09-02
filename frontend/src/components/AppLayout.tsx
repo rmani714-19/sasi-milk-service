@@ -72,7 +72,7 @@ export function AppLayout() {
 
   const drawer = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Toolbar sx={{ px: 2, py: 1.5, justifyContent: 'center' }}>
+      <Box sx={{ px: 2, pt: 2, pb: 1.5, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
         <Box
           component="img"
           src="/logo.png"
@@ -81,12 +81,14 @@ export function AppLayout() {
             (e.currentTarget as HTMLImageElement).style.display = 'none';
             (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty('display', 'block');
           }}
-          sx={{ maxWidth: '100%', maxHeight: 88, objectFit: 'contain' }}
+          sx={{ width: '100%', maxWidth: 148, height: 'auto', display: 'block' }}
         />
-        <Typography variant="h6" color="primary" noWrap sx={{ display: 'none' }}>
-          SASI MILK SERVICE
+        <Typography variant="h6" color="primary" align="center" sx={{ display: 'none', lineHeight: 1.2 }}>
+          SASI MILK
+          <br />
+          SERVICE
         </Typography>
-      </Toolbar>
+      </Box>
       <Divider />
       <List sx={{ flex: 1, py: 1 }}>
         {items.map((n) => (

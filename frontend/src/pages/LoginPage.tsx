@@ -49,7 +49,7 @@ export function LoginPage() {
               (e.currentTarget as HTMLImageElement).style.display = 'none';
               (e.currentTarget.nextElementSibling as HTMLElement | null)?.style.setProperty('display', 'block');
             }}
-            sx={{ maxWidth: 180, maxHeight: 140, objectFit: 'contain' }}
+            sx={{ width: '100%', maxWidth: 190, height: 'auto', display: 'block', mx: 'auto' }}
           />
           <Typography variant="h5" color="primary" sx={{ display: 'none' }}>
             SASI MILK SERVICE
