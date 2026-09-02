@@ -7,6 +7,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { CollectionPage } from './pages/CollectionPage';
 import { ProducersPage } from './pages/ProducersPage';
 import { ProducerDetailPage } from './pages/ProducerDetailPage';
+import { RegionsPage } from './pages/RegionsPage';
 import { RateChartsPage } from './pages/RateChartsPage';
 import { IncentivesPage } from './pages/IncentivesPage';
 import { DeductionsPage } from './pages/DeductionsPage';
@@ -32,6 +33,7 @@ export function App() {
           <Route path="collection" element={<CollectionPage />} />
           <Route path="producers" element={<ProducersPage />} />
           <Route path="producers/:id" element={<ProducerDetailPage />} />
+          <Route path="regions" element={<RegionsPage />} />
           <Route path="rates" element={<RateChartsPage />} />
           <Route path="incentives" element={<IncentivesPage />} />
           <Route path="deductions" element={<DeductionsPage />} />

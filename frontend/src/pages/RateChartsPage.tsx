@@ -21,10 +21,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { rate, today } from '../lib/format';
 import { useRegions } from '../api/common';
+import { regionShort } from '../lib/region';
 import { PageHeader } from '../components/PageHeader';
 import { StatusChip } from '../components/StatusChip';
 import { ConfirmDialog, EmptyState, QueryBoundary, SectionTitle, TableSkeleton, useToast } from '../components/ui';
-import type { RateChart } from '../api/types';
+import type { RateChart, Region } from '../api/types';
 
 export function RateChartsPage() {
   const toast = useToast();
@@ -99,7 +100,7 @@ export function RateChartsPage() {
                     {d.map((r) => (
                       <TableRow key={r.id}>
                         <TableCell sx={{ fontWeight: 600 }}>{r.scope}</TableCell>
-                        <TableCell>{regions.data?.find((x) => x.id === r.regionId)?.code ?? '—'}</TableCell>
+                        <TableCell>{regionShort(regions.data?.find((x) => x.id === r.regionId))}</TableCell>
                         <TableCell align="right">{Number(r.tsValue).toFixed(4)}</TableCell>
                         <TableCell>{r.effectiveFrom}</TableCell>
                         <TableCell>{r.effectiveTo ?? '—'}</TableCell>
@@ -186,7 +187,7 @@ function RateForm({
   onCancel,
   onSubmit,
 }: {
-  regions: { id: number; code: string }[];
+  regions: Region[];
   busy: boolean;
   onCancel: () => void;
   onSubmit: (b: Record<string, unknown>) => void;
@@ -206,7 +207,7 @@ function RateForm({
             <TextField select label="Region" value={f.regionId} onChange={set('regionId')}>
               {regions.map((r) => (
                 <MenuItem key={r.id} value={r.id}>
-                  {r.code}
+                  {regionShort(r)} · {r.name}
                 </MenuItem>
               ))}
             </TextField>

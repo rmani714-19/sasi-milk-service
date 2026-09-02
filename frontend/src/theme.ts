@@ -5,10 +5,9 @@ export type ThemeMode = 'morning' | 'evening';
 /**
  * SASI MILK SERVICE design system.
  * One centralised palette (Milk Green + Milk Blue) with semantic colours.
- * `morning` and `evening` are two light variants — same brand colour, the
- * evening variant cools the page ground and fills the app bar for the
- * second daily collection shift. All colours come from here; components
- * must not hard-code hex values.
+ * `morning` and `evening` are two deliberately different light skins so the
+ * operator can *feel* which collection shift is active — morning is bright and
+ * warm, evening is dim, cool and green-filled. All colours come from here.
  */
 
 const FONT = '"Inter", "Roboto", "Segoe UI", Arial, sans-serif';
@@ -37,23 +36,38 @@ const BRAND = {
 
 interface Variant {
   pageBg: string;
+  paper: string;
+  border: string;
   appBarBg: string;
   appBarText: string;
   appBarBorder: string;
+  /** shift badge shown in the app bar */
+  badgeBg: string;
+  badgeText: string;
 }
 
 const VARIANTS: Record<ThemeMode, Variant> = {
+  // bright, warm, airy
   morning: {
-    pageBg: '#F7F9F8',
+    pageBg: '#F6F9F3',
+    paper: '#FFFFFF',
+    border: '#E4EADF',
     appBarBg: '#FFFFFF',
     appBarText: BRAND.textPrimary,
-    appBarBorder: BRAND.border,
+    appBarBorder: '#E4EADF',
+    badgeBg: '#FFF3D6',
+    badgeText: '#8A6500',
   },
+  // dim, cool, green-filled
   evening: {
-    pageBg: '#EDF1EF',
-    appBarBg: BRAND.primaryDark,
-    appBarText: '#F4F8F6',
-    appBarBorder: BRAND.primaryDark,
+    pageBg: '#DFE7E1',
+    paper: '#F7FAF7',
+    border: '#C8D3CC',
+    appBarBg: '#173F2E',
+    appBarText: '#EAF2EC',
+    appBarBorder: '#173F2E',
+    badgeBg: 'rgba(255,255,255,0.16)',
+    badgeText: '#EAF2EC',
   },
 };
 
@@ -65,6 +79,12 @@ export const STATUS_TOKENS: Record<string, { bg: string; fg: string }> = {
   danger: { bg: '#FDECEC', fg: '#C62828' },
   info: { bg: '#E7F0F7', fg: '#2563A6' },
   neutral: { bg: '#F1F5F3', fg: '#5F6F68' },
+};
+
+/** Per-mode accents consumed by the layout (shift badge, page ground). */
+export const MODE_STYLES: Record<ThemeMode, { badgeBg: string; badgeText: string; label: string }> = {
+  morning: { badgeBg: VARIANTS.morning.badgeBg, badgeText: VARIANTS.morning.badgeText, label: 'Morning shift' },
+  evening: { badgeBg: VARIANTS.evening.badgeBg, badgeText: VARIANTS.evening.badgeText, label: 'Evening shift' },
 };
 
 export function buildTheme(mode: ThemeMode): Theme {
@@ -79,11 +99,9 @@ export function buildTheme(mode: ThemeMode): Theme {
       warning: { main: BRAND.warning },
       error: { main: BRAND.error },
       info: { main: BRAND.info },
-      background: { default: v.pageBg, paper: BRAND.surface },
-      divider: BRAND.border,
+      background: { default: v.pageBg, paper: v.paper },
+      divider: v.border,
       text: { primary: BRAND.textPrimary, secondary: BRAND.textSecondary, disabled: BRAND.textMuted },
-      // custom slots consumed via theme.palette.<name>
-      // (kept as any-typed augmentation-free extras)
     },
     shape: { borderRadius: 8 },
     spacing: 8,
@@ -119,7 +137,7 @@ export function buildTheme(mode: ThemeMode): Theme {
           sizeLarge: { minHeight: 44, fontSize: '0.9375rem' },
           sizeSmall: { minHeight: 32, paddingInline: 12 },
           containedPrimary: { '&:hover': { backgroundColor: BRAND.primaryDark } },
-          outlined: { borderColor: BRAND.border },
+          outlined: { borderColor: v.border },
         },
       },
       MuiIconButton: { styleOverrides: { root: { borderRadius: 8 } } },
@@ -128,7 +146,7 @@ export function buildTheme(mode: ThemeMode): Theme {
           root: {
             textTransform: 'none',
             fontWeight: 600,
-            borderColor: BRAND.border,
+            borderColor: v.border,
             '&.Mui-selected': {
               backgroundColor: BRAND.primaryLight,
               color: BRAND.primaryDark,
@@ -143,7 +161,7 @@ export function buildTheme(mode: ThemeMode): Theme {
           root: {
             borderRadius: 8,
             backgroundColor: BRAND.surface,
-            '& .MuiOutlinedInput-notchedOutline': { borderColor: BRAND.border },
+            '& .MuiOutlinedInput-notchedOutline': { borderColor: v.border },
             '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: BRAND.textMuted },
             '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: BRAND.primary, borderWidth: 2 },
           },
@@ -154,7 +172,7 @@ export function buildTheme(mode: ThemeMode): Theme {
       MuiCard: {
         styleOverrides: {
           root: {
-            border: `1px solid ${BRAND.border}`,
+            border: `1px solid ${v.border}`,
             borderRadius: 12,
             boxShadow: '0 1px 3px rgba(23, 35, 30, 0.04)',
           },
@@ -164,7 +182,7 @@ export function buildTheme(mode: ThemeMode): Theme {
         styleOverrides: {
           root: { borderRadius: 8, fontWeight: 600, fontSize: '0.75rem' },
           sizeSmall: { height: 22 },
-          outlined: { borderColor: BRAND.border },
+          outlined: { borderColor: v.border },
         },
       },
       MuiDialog: { styleOverrides: { paper: { borderRadius: 12 } } },
@@ -180,7 +198,7 @@ export function buildTheme(mode: ThemeMode): Theme {
       },
       MuiTableCell: {
         styleOverrides: {
-          root: { fontSize: '0.8125rem', borderColor: BRAND.border, paddingTop: 10, paddingBottom: 10 },
+          root: { fontSize: '0.8125rem', borderColor: v.border, paddingTop: 10, paddingBottom: 10 },
           head: {
             backgroundColor: BRAND.tableHeadBg,
             color: BRAND.tableHeadText,

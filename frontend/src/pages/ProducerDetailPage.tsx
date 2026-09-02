@@ -20,12 +20,14 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useRegions } from '../api/common';
+import { regionShort } from '../lib/region';
+import * as V from '../lib/validate';
 import { PageHeader } from '../components/PageHeader';
 import { FormSection } from '../components/FormSection';
 import { StatusChip } from '../components/StatusChip';
 import { ConfirmDialog, QueryBoundary, SectionTitle, useToast } from '../components/ui';
 import { useAuth } from '../lib/auth';
-import type { BankAccount, Producer } from '../api/types';
+import type { BankAccount, Producer, Region } from '../api/types';
 
 export function ProducerDetailPage() {
   const { id } = useParams();
@@ -279,7 +281,7 @@ function EditProducerDialog({
 }: {
   open: boolean;
   producer: Producer;
-  regions: { id: number; code: string; name: string }[];
+  regions: Region[];
   busy: boolean;
   onClose: () => void;
   onSubmit: (body: Record<string, unknown>) => void;
@@ -295,9 +297,27 @@ function EditProducerDialog({
     aadhaarNumber: '',
     regionChangeReason: '',
   });
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [tried, setTried] = useState(false);
+  const set =
+    (k: keyof typeof f, transform?: (v: string) => string) =>
+    (e: { target: { value: string } }) =>
+      setF((s) => ({ ...s, [k]: transform ? transform(e.target.value) : e.target.value }));
+  const blur = (k: string) => () => setTouched((t) => ({ ...t, [k]: true }));
   const und = (v: string) => (v.trim() ? v.trim() : undefined);
   const regionChanged = f.regionId !== (producer.regionId ? String(producer.regionId) : '');
+
+  const errors: Record<string, string> = {
+    producerName: V.required('Producer name')(f.producerName),
+    mobileNumber: V.mobile(f.mobileNumber),
+    alternateMobile: V.mobile(f.alternateMobile),
+    email: V.email(f.email),
+    upiId: V.upiId(f.upiId),
+    aadhaarNumber: V.aadhaar(f.aadhaarNumber),
+    regionChangeReason: regionChanged ? V.required('A reason')(f.regionChangeReason) : '',
+  };
+  const showErr = (k: string) => ((touched[k] || tried) && errors[k]) || '';
+  const valid = V.allValid(errors);
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
@@ -305,33 +325,83 @@ function EditProducerDialog({
       <DialogContent dividers>
         <Stack spacing={3}>
           <FormSection title="Details">
-            <TextField label="Producer name" value={f.producerName} onChange={set('producerName')} required />
+            <TextField
+              label="Producer name"
+              value={f.producerName}
+              onChange={set('producerName')}
+              onBlur={blur('producerName')}
+              error={!!showErr('producerName')}
+              helperText={showErr('producerName')}
+              required
+            />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField label="Mobile number" value={f.mobileNumber} onChange={set('mobileNumber')} inputProps={{ inputMode: 'numeric' }} />
-              <TextField label="Alternate mobile" value={f.alternateMobile} onChange={set('alternateMobile')} inputProps={{ inputMode: 'numeric' }} />
+              <TextField
+                label="Mobile number"
+                value={f.mobileNumber}
+                onChange={set('mobileNumber', (v) => V.onlyDigits(v).slice(0, 10))}
+                onBlur={blur('mobileNumber')}
+                error={!!showErr('mobileNumber')}
+                helperText={showErr('mobileNumber')}
+                inputProps={{ inputMode: 'numeric', maxLength: 10 }}
+              />
+              <TextField
+                label="Alternate mobile"
+                value={f.alternateMobile}
+                onChange={set('alternateMobile', (v) => V.onlyDigits(v).slice(0, 10))}
+                onBlur={blur('alternateMobile')}
+                error={!!showErr('alternateMobile')}
+                helperText={showErr('alternateMobile')}
+                inputProps={{ inputMode: 'numeric', maxLength: 10 }}
+              />
             </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField label="GPay / UPI ID" value={f.upiId} onChange={set('upiId')} />
-              <TextField label="Email" value={f.email} onChange={set('email')} />
+              <TextField
+                label="GPay / UPI ID"
+                value={f.upiId}
+                onChange={set('upiId')}
+                onBlur={blur('upiId')}
+                error={!!showErr('upiId')}
+                helperText={showErr('upiId')}
+              />
+              <TextField
+                label="Email"
+                value={f.email}
+                onChange={set('email')}
+                onBlur={blur('email')}
+                error={!!showErr('email')}
+                helperText={showErr('email')}
+              />
             </Stack>
             <TextField
               label="Aadhaar number"
               value={f.aadhaarNumber}
-              onChange={set('aadhaarNumber')}
-              inputProps={{ inputMode: 'numeric', maxLength: 14 }}
-              helperText={producer.aadhaarMasked ? `Current: ${producer.aadhaarMasked} — leave blank to keep` : 'Leave blank if not applicable'}
+              onChange={set('aadhaarNumber', (v) => V.onlyDigits(v).slice(0, 12))}
+              onBlur={blur('aadhaarNumber')}
+              error={!!showErr('aadhaarNumber')}
+              inputProps={{ inputMode: 'numeric', maxLength: 12 }}
+              helperText={
+                showErr('aadhaarNumber') ||
+                (producer.aadhaarMasked ? `Current: ${producer.aadhaarMasked} — leave blank to keep` : 'Leave blank if not applicable')
+              }
             />
             <TextField label="Address" value={f.address} onChange={set('address')} multiline minRows={2} />
             <TextField select label="Region" value={f.regionId} onChange={set('regionId')}>
               <MenuItem value="">— none —</MenuItem>
               {regions.map((r) => (
                 <MenuItem key={r.id} value={r.id}>
-                  {r.code} · {r.name}
+                  {regionShort(r)} · {r.name}
                 </MenuItem>
               ))}
             </TextField>
             {regionChanged && (
-              <TextField label="Reason for region change" value={f.regionChangeReason} onChange={set('regionChangeReason')} />
+              <TextField
+                label="Reason for region change"
+                value={f.regionChangeReason}
+                onChange={set('regionChangeReason')}
+                onBlur={blur('regionChangeReason')}
+                error={!!showErr('regionChangeReason')}
+                helperText={showErr('regionChangeReason')}
+              />
             )}
           </FormSection>
         </Stack>
@@ -340,8 +410,10 @@ function EditProducerDialog({
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"
-          disabled={busy || !f.producerName.trim()}
-          onClick={() =>
+          disabled={busy}
+          onClick={() => {
+            setTried(true);
+            if (!valid) return;
             onSubmit({
               producerName: f.producerName.trim(),
               mobileNumber: und(f.mobileNumber),
@@ -349,11 +421,11 @@ function EditProducerDialog({
               email: und(f.email),
               address: und(f.address),
               upiId: und(f.upiId),
-              aadhaarNumber: f.aadhaarNumber ? f.aadhaarNumber.replace(/\D/g, '') : undefined,
+              aadhaarNumber: f.aadhaarNumber ? V.onlyDigits(f.aadhaarNumber) : undefined,
               regionId: f.regionId ? Number(f.regionId) : undefined,
               regionChangeReason: und(f.regionChangeReason),
-            })
-          }
+            });
+          }}
         >
           Save changes
         </Button>
@@ -387,15 +459,54 @@ function BankDialog({
   onSubmit: (b: Record<string, unknown>) => void;
 }) {
   const [f, setF] = useState({ accountHolderName: '', accountNumber: '', ifscCode: '', bankName: '' });
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [tried, setTried] = useState(false);
+  const set =
+    (k: keyof typeof f, transform?: (v: string) => string) =>
+    (e: { target: { value: string } }) =>
+      setF((s) => ({ ...s, [k]: transform ? transform(e.target.value) : e.target.value }));
+  const blur = (k: string) => () => setTouched((t) => ({ ...t, [k]: true }));
+
+  const errors: Record<string, string> = {
+    accountHolderName: V.required('Account holder name')(f.accountHolderName),
+    accountNumber: V.accountNumber(f.accountNumber),
+    ifscCode: V.ifsc(f.ifscCode),
+  };
+  const showErr = (k: string) => ((touched[k] || tried) && errors[k]) || '';
+  const valid = V.allValid(errors);
+
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
       <DialogTitle>Add bank account</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
-          <TextField label="Account holder name" value={f.accountHolderName} onChange={set('accountHolderName')} autoFocus />
-          <TextField label="Account number" value={f.accountNumber} onChange={set('accountNumber')} />
-          <TextField label="IFSC" value={f.ifscCode} onChange={set('ifscCode')} />
+          <TextField
+            label="Account holder name"
+            value={f.accountHolderName}
+            onChange={set('accountHolderName')}
+            onBlur={blur('accountHolderName')}
+            error={!!showErr('accountHolderName')}
+            helperText={showErr('accountHolderName')}
+            autoFocus
+          />
+          <TextField
+            label="Account number"
+            value={f.accountNumber}
+            onChange={set('accountNumber', (v) => V.onlyDigits(v).slice(0, 18))}
+            onBlur={blur('accountNumber')}
+            error={!!showErr('accountNumber')}
+            helperText={showErr('accountNumber') || 'Digits only, 9–18 long'}
+            inputProps={{ inputMode: 'numeric', maxLength: 18 }}
+          />
+          <TextField
+            label="IFSC"
+            value={f.ifscCode}
+            onChange={set('ifscCode', (v) => V.upper(v).replace(/[^A-Z0-9]/g, '').slice(0, 11))}
+            onBlur={blur('ifscCode')}
+            error={!!showErr('ifscCode')}
+            helperText={showErr('ifscCode')}
+            inputProps={{ maxLength: 11 }}
+          />
           <TextField label="Bank name" value={f.bankName} onChange={set('bankName')} />
         </Stack>
       </DialogContent>
@@ -403,15 +514,17 @@ function BankDialog({
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"
-          disabled={busy || !f.accountHolderName || !f.accountNumber || !f.ifscCode}
-          onClick={() =>
+          disabled={busy}
+          onClick={() => {
+            setTried(true);
+            if (!valid) return;
             onSubmit({
               accountHolderName: f.accountHolderName.trim(),
               accountNumber: f.accountNumber.trim(),
               ifscCode: f.ifscCode.trim().toUpperCase(),
               bankName: f.bankName || undefined,
-            })
-          }
+            });
+          }}
         >
           Save
         </Button>
@@ -438,22 +551,55 @@ function EditBankDialog({
     bankName: account?.bankName ?? '',
     bankBranch: account?.bankBranch ?? '',
   });
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [tried, setTried] = useState(false);
+  const set =
+    (k: keyof typeof f, transform?: (v: string) => string) =>
+    (e: { target: { value: string } }) =>
+      setF((s) => ({ ...s, [k]: transform ? transform(e.target.value) : e.target.value }));
+  const blur = (k: string) => () => setTouched((t) => ({ ...t, [k]: true }));
+
+  const errors: Record<string, string> = {
+    accountHolderName: V.required('Account holder name')(f.accountHolderName),
+    accountNumber: V.accountNumber(f.accountNumber, true), // blank keeps existing
+    ifscCode: V.ifsc(f.ifscCode),
+  };
+  const showErr = (k: string) => ((touched[k] || tried) && errors[k]) || '';
+  const valid = V.allValid(errors);
 
   return (
     <Dialog open={!!account} onClose={onClose} fullWidth maxWidth="xs">
       <DialogTitle>Edit bank account</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
-          <TextField label="Account holder name" value={f.accountHolderName} onChange={set('accountHolderName')} required />
+          <TextField
+            label="Account holder name"
+            value={f.accountHolderName}
+            onChange={set('accountHolderName')}
+            onBlur={blur('accountHolderName')}
+            error={!!showErr('accountHolderName')}
+            helperText={showErr('accountHolderName')}
+            required
+          />
           <TextField
             label="Account number"
             value={f.accountNumber}
-            onChange={set('accountNumber')}
-            inputProps={{ inputMode: 'numeric' }}
-            helperText={account ? `Current: ${account.accountNumberMasked} — leave blank to keep` : ''}
+            onChange={set('accountNumber', (v) => V.onlyDigits(v).slice(0, 18))}
+            onBlur={blur('accountNumber')}
+            error={!!showErr('accountNumber')}
+            inputProps={{ inputMode: 'numeric', maxLength: 18 }}
+            helperText={showErr('accountNumber') || (account ? `Current: ${account.accountNumberMasked} — leave blank to keep` : '')}
           />
-          <TextField label="IFSC" value={f.ifscCode} onChange={set('ifscCode')} required />
+          <TextField
+            label="IFSC"
+            value={f.ifscCode}
+            onChange={set('ifscCode', (v) => V.upper(v).replace(/[^A-Z0-9]/g, '').slice(0, 11))}
+            onBlur={blur('ifscCode')}
+            error={!!showErr('ifscCode')}
+            helperText={showErr('ifscCode')}
+            inputProps={{ maxLength: 11 }}
+            required
+          />
           <TextField label="Bank name" value={f.bankName} onChange={set('bankName')} />
           <TextField label="Branch" value={f.bankBranch} onChange={set('bankBranch')} />
         </Stack>
@@ -462,16 +608,18 @@ function EditBankDialog({
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"
-          disabled={busy || !f.accountHolderName.trim() || !f.ifscCode.trim()}
-          onClick={() =>
+          disabled={busy}
+          onClick={() => {
+            setTried(true);
+            if (!valid) return;
             onSubmit({
               accountHolderName: f.accountHolderName.trim(),
               accountNumber: f.accountNumber.trim() || undefined,
               ifscCode: f.ifscCode.trim().toUpperCase(),
               bankName: f.bankName.trim() || undefined,
               bankBranch: f.bankBranch.trim() || undefined,
-            })
-          }
+            });
+          }}
         >
           Save changes
         </Button>

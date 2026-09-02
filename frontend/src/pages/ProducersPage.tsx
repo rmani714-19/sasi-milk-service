@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
@@ -23,6 +23,8 @@ import PeopleOutlinedIcon from '@mui/icons-material/PeopleOutlined';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useRegions } from '../api/common';
+import { regionShort } from '../lib/region';
+import * as V from '../lib/validate';
 import { PageHeader } from '../components/PageHeader';
 import { FormSection } from '../components/FormSection';
 import { StatusChip } from '../components/StatusChip';
@@ -37,12 +39,14 @@ export function ProducersPage() {
   const { can } = useAuth();
   const regions = useRegions();
   const [q, setQ] = useState('');
+  const [regionId, setRegionId] = useState('');
+  const [status, setStatus] = useState('');
   const [open, setOpen] = useState(false);
 
   const list = useQuery({
     queryKey: ['producers', { q }],
     queryFn: async () =>
-      (await api.get<Page<Producer>>('/producers', { params: { q: q || undefined, size: 100 } })).data,
+      (await api.get<Page<Producer>>('/producers', { params: { q: q || undefined, size: 200 } })).data,
   });
 
   const create = useMutation({
@@ -55,7 +59,16 @@ export function ProducersPage() {
     onError: toast.fromError,
   });
 
-  const regionName = (id?: number) => regions.data?.find((r) => r.id === id)?.code ?? '—';
+  const regionOf = (id?: number) => regions.data?.find((r) => r.id === id);
+
+  const rows = useMemo(() => {
+    const all = list.data?.content ?? [];
+    return all.filter(
+      (p) =>
+        (!regionId || String(p.regionId ?? '') === regionId) &&
+        (!status || p.status === status),
+    );
+  }, [list.data, regionId, status]);
 
   return (
     <>
@@ -70,32 +83,55 @@ export function ProducersPage() {
           )
         }
       />
-      <TextField
-        placeholder="Search by name or producer number"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        sx={{ mb: 2, maxWidth: 380 }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchIcon color="action" fontSize="small" />
-            </InputAdornment>
-          ),
-        }}
-      />
+
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
+        <TextField
+          placeholder="Search by name or producer number"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          sx={{ maxWidth: { sm: 340 } }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon color="action" fontSize="small" />
+              </InputAdornment>
+            ),
+          }}
+        />
+        <TextField select label="Region" value={regionId} onChange={(e) => setRegionId(e.target.value)} sx={{ minWidth: 180 }}>
+          <MenuItem value="">All regions</MenuItem>
+          {regions.data?.map((r) => (
+            <MenuItem key={r.id} value={String(r.id)}>
+              {regionShort(r)}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField select label="Status" value={status} onChange={(e) => setStatus(e.target.value)} sx={{ minWidth: 150 }}>
+          <MenuItem value="">All statuses</MenuItem>
+          <MenuItem value="ACTIVE">Active</MenuItem>
+          <MenuItem value="INACTIVE">Inactive</MenuItem>
+        </TextField>
+      </Stack>
+
       <Card>
         <QueryBoundary
           query={list}
           skeleton={<TableSkeleton cols={5} />}
-          empty={(d) => d.content.length === 0}
+          empty={() => rows.length === 0}
           emptyState={
             <EmptyState
               icon={<PeopleOutlinedIcon />}
-              title={q ? 'No matching producers' : 'No producers yet'}
-              description={q ? 'Try a different name or number.' : 'Add your first milk producer to get started.'}
+              title={q || regionId || status ? 'No matching producers' : 'No producers yet'}
+              description={
+                q || regionId || status
+                  ? 'Adjust the search or filters.'
+                  : 'Add your first milk producer to get started.'
+              }
               action={
                 can('MANAGE_PRODUCERS') &&
-                !q && (
+                !q &&
+                !regionId &&
+                !status && (
                   <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
                     Add producer
                   </Button>
@@ -104,8 +140,8 @@ export function ProducersPage() {
             />
           }
         >
-          {(d) => (
-            <TableContainer sx={{ maxHeight: 'calc(100vh - 260px)' }}>
+          {() => (
+            <TableContainer sx={{ maxHeight: 'calc(100vh - 280px)' }}>
               <Table size="small" stickyHeader>
                 <TableHead>
                   <TableRow>
@@ -117,12 +153,12 @@ export function ProducersPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {d.content.map((p) => (
+                  {rows.map((p) => (
                     <TableRow key={p.id} hover sx={{ cursor: 'pointer' }} onClick={() => nav(`/producers/${p.id}`)}>
                       <TableCell sx={{ fontWeight: 600 }}>{p.producerNumber}</TableCell>
                       <TableCell>{p.producerName}</TableCell>
                       <TableCell>{p.mobileNumber ?? '—'}</TableCell>
-                      <TableCell>{regionName(p.regionId)}</TableCell>
+                      <TableCell>{regionShort(regionOf(p.regionId))}</TableCell>
                       <TableCell>
                         <StatusChip status={p.status} />
                       </TableCell>
@@ -176,14 +212,42 @@ function ProducerDialog({
   onSubmit: (body: Record<string, unknown>) => void;
 }) {
   const [f, setF] = useState(BLANK);
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [tried, setTried] = useState(false);
+
+  const reset = () => {
+    setF(BLANK);
+    setTouched({});
+    setTried(false);
+  };
+
+  const set =
+    (k: keyof typeof f, transform?: (v: string) => string) =>
+    (e: { target: { value: string } }) => {
+      const raw = e.target.value;
+      setF((s) => ({ ...s, [k]: transform ? transform(raw) : raw }));
+    };
+  const blur = (k: string) => () => setTouched((t) => ({ ...t, [k]: true }));
   const und = (v: string) => (v.trim() ? v.trim() : undefined);
 
-  const bankReady =
-    !!f.accountHolderName.trim() && !!f.accountNumber.trim() && !!f.bankName.trim() && !!f.ifscCode.trim();
-  const ready = !!f.producerName.trim() && bankReady;
+  const errors: Record<string, string> = {
+    producerName: V.required('Producer name')(f.producerName),
+    mobileNumber: V.mobile(f.mobileNumber),
+    alternateMobile: V.mobile(f.alternateMobile),
+    email: V.email(f.email),
+    upiId: V.upiId(f.upiId),
+    aadhaarNumber: V.aadhaar(f.aadhaarNumber),
+    accountHolderName: V.required('Account holder name')(f.accountHolderName),
+    accountNumber: V.accountNumber(f.accountNumber),
+    ifscCode: V.ifsc(f.ifscCode),
+    bankName: V.required('Bank name')(f.bankName),
+  };
+  const showErr = (k: string) => ((touched[k] || tried) && errors[k]) || '';
+  const valid = V.allValid(errors);
 
   const submit = () => {
+    setTried(true);
+    if (!valid) return;
     onSubmit({
       producerName: f.producerName.trim(),
       mobileNumber: und(f.mobileNumber),
@@ -191,7 +255,7 @@ function ProducerDialog({
       email: und(f.email),
       address: und(f.address),
       upiId: und(f.upiId),
-      aadhaarNumber: f.aadhaarNumber ? f.aadhaarNumber.replace(/\D/g, '') : undefined,
+      aadhaarNumber: f.aadhaarNumber ? V.onlyDigits(f.aadhaarNumber) : undefined,
       regionId: f.regionId ? Number(f.regionId) : undefined,
       bank: {
         accountHolderName: f.accountHolderName.trim(),
@@ -204,24 +268,36 @@ function ProducerDialog({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onExited: () => setF(BLANK) }}>
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" TransitionProps={{ onExited: reset }}>
       <DialogTitle>Add producer</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={3}>
           <FormSection title="Identity" hint="Producer number is assigned automatically on save.">
-            <TextField label="Producer name" value={f.producerName} onChange={set('producerName')} autoFocus required />
+            <TextField
+              label="Producer name"
+              value={f.producerName}
+              onChange={set('producerName')}
+              onBlur={blur('producerName')}
+              error={!!showErr('producerName')}
+              helperText={showErr('producerName')}
+              autoFocus
+              required
+            />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <TextField
                 label="Aadhaar number (12 digits)"
                 value={f.aadhaarNumber}
-                onChange={set('aadhaarNumber')}
-                inputProps={{ inputMode: 'numeric', maxLength: 14 }}
+                onChange={set('aadhaarNumber', (v) => V.onlyDigits(v).slice(0, 12))}
+                onBlur={blur('aadhaarNumber')}
+                error={!!showErr('aadhaarNumber')}
+                helperText={showErr('aadhaarNumber')}
+                inputProps={{ inputMode: 'numeric', maxLength: 12 }}
               />
               <TextField select label="Region" value={f.regionId} onChange={set('regionId')}>
                 <MenuItem value="">— none —</MenuItem>
                 {regions.map((r) => (
                   <MenuItem key={r.id} value={r.id}>
-                    {r.code} · {r.name}
+                    {regionShort(r)} · {r.name}
                   </MenuItem>
                 ))}
               </TextField>
@@ -231,36 +307,100 @@ function ProducerDialog({
 
           <FormSection title="Contact">
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField label="Mobile number" value={f.mobileNumber} onChange={set('mobileNumber')} inputProps={{ inputMode: 'numeric' }} />
-              <TextField label="Alternate mobile" value={f.alternateMobile} onChange={set('alternateMobile')} inputProps={{ inputMode: 'numeric' }} />
+              <TextField
+                label="Mobile number"
+                value={f.mobileNumber}
+                onChange={set('mobileNumber', (v) => V.onlyDigits(v).slice(0, 10))}
+                onBlur={blur('mobileNumber')}
+                error={!!showErr('mobileNumber')}
+                helperText={showErr('mobileNumber')}
+                inputProps={{ inputMode: 'numeric', maxLength: 10 }}
+              />
+              <TextField
+                label="Alternate mobile"
+                value={f.alternateMobile}
+                onChange={set('alternateMobile', (v) => V.onlyDigits(v).slice(0, 10))}
+                onBlur={blur('alternateMobile')}
+                error={!!showErr('alternateMobile')}
+                helperText={showErr('alternateMobile')}
+                inputProps={{ inputMode: 'numeric', maxLength: 10 }}
+              />
             </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField label="GPay / UPI ID" value={f.upiId} onChange={set('upiId')} />
-              <TextField label="Email (optional)" value={f.email} onChange={set('email')} />
+              <TextField
+                label="GPay / UPI ID"
+                value={f.upiId}
+                onChange={set('upiId')}
+                onBlur={blur('upiId')}
+                error={!!showErr('upiId')}
+                helperText={showErr('upiId') || 'e.g. ramesh@okhdfcbank'}
+              />
+              <TextField
+                label="Email (optional)"
+                value={f.email}
+                onChange={set('email')}
+                onBlur={blur('email')}
+                error={!!showErr('email')}
+                helperText={showErr('email')}
+              />
             </Stack>
           </FormSection>
 
           <FormSection title="Bank details (required)">
-            <TextField label="Account holder name" value={f.accountHolderName} onChange={set('accountHolderName')} required />
+            <TextField
+              label="Account holder name"
+              value={f.accountHolderName}
+              onChange={set('accountHolderName')}
+              onBlur={blur('accountHolderName')}
+              error={!!showErr('accountHolderName')}
+              helperText={showErr('accountHolderName')}
+              required
+            />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField label="Account number" value={f.accountNumber} onChange={set('accountNumber')} inputProps={{ inputMode: 'numeric' }} required />
-              <TextField label="IFSC code" value={f.ifscCode} onChange={set('ifscCode')} required />
+              <TextField
+                label="Account number"
+                value={f.accountNumber}
+                onChange={set('accountNumber', (v) => V.onlyDigits(v).slice(0, 18))}
+                onBlur={blur('accountNumber')}
+                error={!!showErr('accountNumber')}
+                helperText={showErr('accountNumber') || 'Digits only, 9–18 long'}
+                inputProps={{ inputMode: 'numeric', maxLength: 18 }}
+                required
+              />
+              <TextField
+                label="IFSC code"
+                value={f.ifscCode}
+                onChange={set('ifscCode', (v) => V.upper(v).replace(/[^A-Z0-9]/g, '').slice(0, 11))}
+                onBlur={blur('ifscCode')}
+                error={!!showErr('ifscCode')}
+                helperText={showErr('ifscCode')}
+                inputProps={{ maxLength: 11 }}
+                required
+              />
             </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField label="Bank name" value={f.bankName} onChange={set('bankName')} required />
+              <TextField
+                label="Bank name"
+                value={f.bankName}
+                onChange={set('bankName')}
+                onBlur={blur('bankName')}
+                error={!!showErr('bankName')}
+                helperText={showErr('bankName')}
+                required
+              />
               <TextField label="Branch (optional)" value={f.bankBranch} onChange={set('bankBranch')} />
             </Stack>
           </FormSection>
-          {!bankReady && (
-            <Typography variant="caption" color="text.secondary">
-              Bank details are mandatory — the primary payout account is created with the producer.
+          {tried && !valid && (
+            <Typography variant="caption" color="error">
+              Please fix the highlighted fields.
             </Typography>
           )}
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" disabled={busy || !ready} onClick={submit}>
+        <Button variant="contained" disabled={busy} onClick={submit}>
           {busy ? 'Saving…' : 'Save producer'}
         </Button>
       </DialogActions>

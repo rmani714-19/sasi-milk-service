@@ -14,6 +14,7 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
+import MenuItem from '@mui/material/MenuItem';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
@@ -30,6 +31,7 @@ import { litres as fmtL, money, rate as fmtRate, today, uuid } from '../lib/form
 import { queueCollection } from '../lib/offline';
 import { PrintableReceipt } from '../components/PrintableReceipt';
 import { PageHeader } from '../components/PageHeader';
+import { ProducerPicker } from '../components/ProducerPicker';
 import { SectionTitle, useToast } from '../components/ui';
 import type { CenterSettings, Collection, Page, Producer, RatePreview } from '../api/types';
 
@@ -60,6 +62,11 @@ export function CollectionPage() {
   const [lastSaved, setLastSaved] = useState<Collection | null>(null);
   const [receiptFor, setReceiptFor] = useState<Collection | null>(null);
 
+  // filters for the day's list (multiple conditions, combined)
+  const [fShift, setFShift] = useState<'ALL' | Shift>('ALL');
+  const [fProducer, setFProducer] = useState<Producer | null>(null);
+  const [fSearch, setFSearch] = useState('');
+
   const center = useQuery({
     queryKey: ['center'],
     queryFn: async () => (await api.get<CenterSettings>('/center')).data,
@@ -73,10 +80,32 @@ export function CollectionPage() {
   };
 
   const recent = useQuery({
-    queryKey: ['collections', { date }],
+    queryKey: ['collections', { date, fShift, producerId: fProducer?.id ?? null }],
     queryFn: async () =>
-      (await api.get<Page<Collection>>('/collections', { params: { date, size: 20 } })).data,
+      (
+        await api.get<Page<Collection>>('/collections', {
+          params: {
+            date,
+            size: 100,
+            ...(fShift !== 'ALL' ? { shift: fShift } : {}),
+            ...(fProducer ? { producerId: fProducer.id } : {}),
+          },
+        })
+      ).data,
   });
+
+  const filteredRecent = useMemo(() => {
+    const rows = recent.data?.content ?? [];
+    const q = fSearch.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((c) =>
+      [c.collectionNumber, c.producerName, c.producerNumber, String(c.producerId)]
+        .filter(Boolean)
+        .some((s) => String(s).toLowerCase().includes(q)),
+    );
+  }, [recent.data, fSearch]);
+
+  const filtersActive = fShift !== 'ALL' || !!fProducer || !!fSearch.trim();
 
   // auto-follow the clock (morning/evening) until the operator picks a shift manually
   useEffect(() => {
@@ -373,23 +402,97 @@ export function CollectionPage() {
         </Grid>
 
         <Grid size={{ xs: 12, md: 5, lg: 6 }}>
-          <SectionTitle sx={{ mt: { xs: 0, md: 0 } }}>Today · {date}</SectionTitle>
+          <Stack
+            direction="row"
+            alignItems="center"
+            justifyContent="space-between"
+            sx={{ mb: 1.5, flexWrap: 'wrap', gap: 1 }}
+          >
+            <SectionTitle sx={{ mb: 0 }}>Today · {date}</SectionTitle>
+            <Typography variant="body2" color="text.secondary">
+              {filteredRecent.length} {filteredRecent.length === 1 ? 'entry' : 'entries'}
+              {filtersActive ? ' (filtered)' : ''}
+            </Typography>
+          </Stack>
+
+          <Card sx={{ mb: 2 }}>
+            <CardContent sx={{ py: 2 }}>
+              <Stack spacing={1.5}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                  <TextField
+                    select
+                    label="Shift"
+                    size="small"
+                    value={fShift}
+                    onChange={(e) => setFShift(e.target.value as 'ALL' | Shift)}
+                    sx={{ minWidth: 130 }}
+                  >
+                    <MenuItem value="ALL">All shifts</MenuItem>
+                    <MenuItem value="MORNING">Morning</MenuItem>
+                    <MenuItem value="EVENING">Evening</MenuItem>
+                  </TextField>
+                  <Box sx={{ flex: 1, minWidth: 180 }}>
+                    <ProducerPicker value={fProducer} onChange={setFProducer} label="Filter by producer" />
+                  </Box>
+                </Stack>
+                <Stack direction="row" spacing={1.5} alignItems="center">
+                  <TextField
+                    size="small"
+                    fullWidth
+                    placeholder="Search number / producer in this list"
+                    value={fSearch}
+                    onChange={(e) => setFSearch(e.target.value)}
+                  />
+                  {filtersActive && (
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        setFShift('ALL');
+                        setFProducer(null);
+                        setFSearch('');
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </Stack>
+              </Stack>
+            </CardContent>
+          </Card>
+
           <Card>
             <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell>No.</TableCell>
                   <TableCell>Producer</TableCell>
+                  <TableCell>Shift</TableCell>
                   <TableCell align="right">Litres</TableCell>
                   <TableCell align="right">Net</TableCell>
                   <TableCell align="right" />
                 </TableRow>
               </TableHead>
               <TableBody>
-                {recent.data?.content.map((c) => (
+                {filteredRecent.map((c) => (
                   <TableRow key={c.id}>
                     <TableCell>{c.collectionNumber}</TableCell>
-                    <TableCell>{c.producerName ?? c.producerNumber ?? `#${c.producerId}`}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={600} noWrap>
+                        {c.producerName ?? `#${c.producerId}`}
+                      </Typography>
+                      {c.producerNumber && (
+                        <Typography variant="caption" color="text.secondary">
+                          {c.producerNumber}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={c.shift === 'MORNING' ? 'AM' : 'PM'}
+                      />
+                    </TableCell>
                     <TableCell align="right">{fmtL(c.litres)}</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 600 }}>
                       {money(c.breakdown.netAmount)}
@@ -403,10 +506,12 @@ export function CollectionPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {recent.data && recent.data.content.length === 0 && (
+                {filteredRecent.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>
-                      No collections recorded for this date.
+                    <TableCell colSpan={6} sx={{ color: 'text.secondary', textAlign: 'center', py: 4 }}>
+                      {filtersActive
+                        ? 'No collections match these filters.'
+                        : 'No collections recorded for this date.'}
                     </TableCell>
                   </TableRow>
                 )}

@@ -3,6 +3,7 @@ import { Link as RouterLink, Outlet, useLocation } from 'react-router-dom';
 import AppBar from '@mui/material/AppBar';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
 import Drawer from '@mui/material/Drawer';
@@ -36,11 +37,12 @@ import PaymentsOutlinedIcon from '@mui/icons-material/PaymentsOutlined';
 import AssessmentOutlinedIcon from '@mui/icons-material/AssessmentOutlined';
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
+import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined';
 import { useAuth } from '../lib/auth';
 import { useAppTheme } from '../lib/appTheme';
 import { usePendingSync } from '../lib/usePendingSync';
-import { PALETTE } from '../theme';
+import { MODE_STYLES, PALETTE } from '../theme';
 
 const NAV_FULL = 250;
 const NAV_MINI = 72;
@@ -57,6 +59,7 @@ const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: <DashboardOutlinedIcon />, perm: 'VIEW_DASHBOARD' },
   { to: '/collection', label: 'Milk Collection', icon: <LocalDrinkOutlinedIcon />, perm: 'CREATE_COLLECTION' },
   { to: '/producers', label: 'Producers', icon: <PeopleOutlinedIcon />, perm: 'VIEW_PRODUCERS' },
+  { to: '/regions', label: 'Regions', icon: <PlaceOutlinedIcon />, perm: 'MANAGE_RATES' },
   { to: '/incentives', label: 'Incentives', icon: <CardGiftcardOutlinedIcon />, perm: 'MANAGE_INCENTIVES' },
   { to: '/deductions', label: 'Deductions', icon: <ReceiptLongOutlinedIcon />, perm: 'MANAGE_DEDUCTIONS' },
   { to: '/advances', label: 'Advances', icon: <AccountBalanceWalletOutlinedIcon />, perm: 'MANAGE_ADVANCES' },
@@ -279,10 +282,32 @@ export function AppLayout() {
             </Tooltip>
           )}
 
-          <Tooltip title={`${mode === 'morning' ? 'Morning' : 'Evening'} theme${auto ? ' (auto)' : ''} — tap to switch`}>
-            <IconButton color="inherit" onClick={toggle} aria-label="switch theme">
-              {mode === 'morning' ? <WbSunnyOutlinedIcon /> : <DarkModeOutlinedIcon />}
-            </IconButton>
+          <Tooltip
+            title={
+              auto
+                ? `Auto — following the clock (${mode}). Tap to lock the other shift skin.`
+                : `${MODE_STYLES[mode].label} skin locked. Tap to switch.`
+            }
+          >
+            <Button
+              onClick={toggle}
+              aria-label="switch shift theme"
+              startIcon={mode === 'morning' ? <WbSunnyOutlinedIcon /> : <DarkModeOutlinedIcon />}
+              sx={{
+                borderRadius: 999,
+                px: 1.5,
+                minHeight: 34,
+                bgcolor: MODE_STYLES[mode].badgeBg,
+                color: MODE_STYLES[mode].badgeText,
+                fontWeight: 700,
+                '&:hover': { bgcolor: MODE_STYLES[mode].badgeBg, filter: 'brightness(0.96)' },
+                '& .MuiButton-startIcon': { mr: 0.5 },
+              }}
+            >
+              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                {mode === 'morning' ? 'Morning' : 'Evening'}
+              </Box>
+            </Button>
           </Tooltip>
 
           <Tooltip title={user?.fullName ?? 'Account'}>
