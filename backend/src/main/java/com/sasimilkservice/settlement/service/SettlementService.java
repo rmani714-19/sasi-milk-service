@@ -17,6 +17,9 @@ import com.sasimilkservice.common.security.CurrentUser;
 import com.sasimilkservice.deduction.spi.DeductionCalculator.DeductionResult;
 import com.sasimilkservice.deduction.spi.DeductionLedger;
 import com.sasimilkservice.deduction.spi.DeductionLedger.PendingDeductions;
+import com.sasimilkservice.paymentops.domain.BankBalanceCheck.SubjectType;
+import com.sasimilkservice.paymentops.service.PaymentOpsService;
+import com.sasimilkservice.paymentops.service.PreValidation;
 import com.sasimilkservice.producer.spi.BankAccountResolver;
 import com.sasimilkservice.producer.spi.ProducerDirectory;
 import com.sasimilkservice.settlement.domain.Settlement;
@@ -66,6 +69,7 @@ public class SettlementService implements SettlementPayoutGateway {
     private final CenterService centerService;
     private final BankAccountResolver bankAccounts;
     private final ProducerDirectory producerDirectory;
+    private final PaymentOpsService paymentOps;
     private final AuditRecorder audit;
 
     public SettlementService(SettlementRepository settlements,
@@ -80,6 +84,7 @@ public class SettlementService implements SettlementPayoutGateway {
                              CenterService centerService,
                              BankAccountResolver bankAccounts,
                              ProducerDirectory producerDirectory,
+                             PaymentOpsService paymentOps,
                              AuditRecorder audit) {
         this.settlements = settlements;
         this.items = items;
@@ -93,6 +98,7 @@ public class SettlementService implements SettlementPayoutGateway {
         this.centerService = centerService;
         this.bankAccounts = bankAccounts;
         this.producerDirectory = producerDirectory;
+        this.paymentOps = paymentOps;
         this.audit = audit;
     }
 
@@ -330,8 +336,67 @@ public class SettlementService implements SettlementPayoutGateway {
         return s;
     }
 
+    /** The pre-approval checklist for this settlement (see {@link PreValidation}). */
+    public PreValidation.Report preValidate(long id) {
+        Settlement s = require(id);
+        List<SettlementItem> lines = items.findBySettlementIdOrderByProducerIdAsc(s.getId());
+        int verified = (int) lines.stream()
+                .filter(i -> i.getVerificationStatus() == SettlementItem.VerificationStatus.VERIFIED).count();
+        boolean allVerified = !lines.isEmpty() && verified == lines.size();
+        boolean noDrift = lines.stream().allMatch(i ->
+                i.getVerificationStatus() != SettlementItem.VerificationStatus.VERIFIED
+                        || (i.getVerifiedAmount() != null
+                        && i.getVerifiedAmount().compareTo(i.getNetPayable()) == 0));
+        BigDecimal sumNet = lines.stream().map(SettlementItem::getNetPayable)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal sumLitres = lines.stream().map(SettlementItem::getTotalLitres)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        long missingBank = lines.stream().filter(i -> i.getBankAccountId() == null).count();
+        long conflicted = lines.stream().filter(i ->
+                i.getPaymentStatus() == SettlementItem.PaymentStatus.ON_HOLD
+                        || i.getPaymentStatus() == SettlementItem.PaymentStatus.FAILED).count();
+        var balance = paymentOps.latest(SubjectType.SETTLEMENT, id);
+        boolean balanceVerified = balance.isPresent();
+        boolean balanceSufficient = balance.filter(b -> b.isSufficient())
+                .filter(b -> b.getRequiredAmount().compareTo(MoneyMath.money(s.getTotalNetPayable())) == 0)
+                .isPresent();
+
+        return PreValidation.builder()
+                .blocking("recipients", "All eligible recipients identified",
+                        !lines.isEmpty() && lines.size() == s.getTotalProducers(),
+                        "No producer lines — calculate the settlement", "/settlements/" + id)
+                .blocking("verified", "All producer payments verified", allVerified,
+                        (lines.size() - verified) + " of " + lines.size() + " not verified", "/settlements/" + id)
+                .blocking("no_drift", "No amount changed after verification", noDrift,
+                        "A verified amount has since changed — re-verify", "/settlements/" + id)
+                .blocking("totals_match", "Batch total matches recipient totals",
+                        MoneyMath.money(sumNet).compareTo(MoneyMath.money(s.getTotalNetPayable())) == 0,
+                        "Sum of lines " + MoneyMath.money(sumNet) + " != batch " + s.getTotalNetPayable(), null)
+                .blocking("bank_balance_verified", "Bank balance verified", balanceVerified,
+                        "Record the owner's available bank balance", "/settlements/" + id)
+                .blocking("bank_balance_sufficient", "Sufficient bank balance", balanceSufficient,
+                        "Latest balance check does not cover " + MoneyMath.money(s.getTotalNetPayable()),
+                        "/settlements/" + id)
+                .info("litres", "Total litres verified",
+                        MoneyMath.quantity(sumLitres).compareTo(MoneyMath.quantity(s.getTotalLitres())) == 0,
+                        "lines " + MoneyMath.quantity(sumLitres) + " / batch " + s.getTotalLitres())
+                .info("bank_details", "Bank details complete for every recipient", missingBank == 0,
+                        missingBank == 0 ? "all set" : missingBank + " producer(s) have no primary bank account")
+                .info("no_conflict", "No unresolved payment conflict", conflicted == 0,
+                        conflicted == 0 ? "none" : conflicted + " line(s) FAILED / ON_HOLD")
+                .info("period", "Payment period valid",
+                        !s.getPeriodEnd().isBefore(s.getPeriodStart()),
+                        s.getPeriodStart() + " -> " + s.getPeriodEnd())
+                .build();
+    }
+
     @Transactional
     public Settlement approve(long id) {
+        return approve(id, true);
+    }
+
+    @Transactional
+    public Settlement approve(long id, boolean confirmed) {
         Settlement s = require(id);
         boolean legacyAll = s.getPaymentFrequency() == Settlement.PaymentFrequency.ALL;
         boolean fromReviewed = legacyAll && s.getStatus() == Settlement.Status.REVIEWED;
@@ -356,12 +421,22 @@ public class SettlementService implements SettlementPayoutGateway {
                             item.getProducerId(), item.getVerifiedAmount(), item.getNetPayable()));
                 }
             }
+            if (!paymentOps.balanceCovered(SubjectType.SETTLEMENT, id, s.getTotalNetPayable())) {
+                throw new BusinessRuleException("Owner bank balance is not verified as sufficient for "
+                        + MoneyMath.money(s.getTotalNetPayable()) + " — verify the bank balance before approval");
+            }
+            if (preValidate(id).result() != PreValidation.Result.READY_FOR_APPROVAL) {
+                throw new BusinessRuleException("Pre-validation is BLOCKED — resolve the failing checks before approval");
+            }
+        }
+        if (!confirmed) {
+            throw new BusinessRuleException("Approval must be explicitly confirmed by the owner / manager");
         }
         s.setStatus(Settlement.Status.APPROVED);
         s.setApprovedAt(Instant.now());
         CurrentUser.id().ifPresent(s::setApprovedBy);
         audit.record("SETTLEMENT_APPROVED", "Settlement", s.getId(),
-                "Settlement %s approved, net payable %s".formatted(
+                "Settlement %s approved (owner-confirmed), net payable %s".formatted(
                         s.getSettlementNumber(), s.getTotalNetPayable()));
         return s;
     }

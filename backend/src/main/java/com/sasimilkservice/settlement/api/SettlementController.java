@@ -1,5 +1,11 @@
 package com.sasimilkservice.settlement.api;
 
+import com.sasimilkservice.paymentops.api.PaymentOpsDtos.ApproveRequest;
+import com.sasimilkservice.paymentops.api.PaymentOpsDtos.BankBalanceCheckResponse;
+import com.sasimilkservice.paymentops.api.PaymentOpsDtos.BankBalanceRequest;
+import com.sasimilkservice.paymentops.api.PaymentOpsDtos.PreValidationResponse;
+import com.sasimilkservice.paymentops.domain.BankBalanceCheck.SubjectType;
+import com.sasimilkservice.paymentops.service.PaymentOpsService;
 import com.sasimilkservice.producer.spi.ProducerDirectory;
 import com.sasimilkservice.producer.spi.ProducerDirectory.ProducerView;
 import com.sasimilkservice.settlement.api.dto.SettlementDtos.AddAdjustmentRequest;
@@ -33,10 +39,13 @@ public class SettlementController {
 
     private final SettlementService service;
     private final ProducerDirectory producers;
+    private final PaymentOpsService paymentOps;
 
-    public SettlementController(SettlementService service, ProducerDirectory producers) {
+    public SettlementController(SettlementService service, ProducerDirectory producers,
+                               PaymentOpsService paymentOps) {
         this.service = service;
         this.producers = producers;
+        this.paymentOps = paymentOps;
     }
 
     @GetMapping
@@ -104,10 +113,34 @@ public class SettlementController {
         return service.collectionsForItem(id, itemId).stream().map(DailyCollectionRow::from).toList();
     }
 
+    @GetMapping("/{id}/bank-balance")
+    @PreAuthorize("hasAnyAuthority('VERIFY_PAYMENT','APPROVE_SETTLEMENT','PROCESS_PAYMENT','VIEW_PAYMENTS')")
+    public BankBalanceCheckResponse bankBalance(@PathVariable long id) {
+        return paymentOps.latest(SubjectType.SETTLEMENT, id)
+                .map(BankBalanceCheckResponse::from)
+                .orElse(null);
+    }
+
+    @PostMapping("/{id}/bank-balance")
+    @PreAuthorize("hasAnyAuthority('VERIFY_PAYMENT','APPROVE_SETTLEMENT','PROCESS_PAYMENT')")
+    public BankBalanceCheckResponse verifyBankBalance(@PathVariable long id,
+                                                     @Valid @RequestBody BankBalanceRequest r) {
+        Settlement s = service.require(id);
+        return BankBalanceCheckResponse.from(paymentOps.record(SubjectType.SETTLEMENT, id,
+                r.bankAccountLabel(), r.availableBalance(), s.getTotalNetPayable(), r.method(), r.note()));
+    }
+
+    @GetMapping("/{id}/pre-validation")
+    @PreAuthorize("hasAnyAuthority('GENERATE_SETTLEMENT','REVIEW_SETTLEMENT','VERIFY_PAYMENT','APPROVE_SETTLEMENT','VIEW_PAYMENTS')")
+    public PreValidationResponse preValidation(@PathVariable long id) {
+        return PreValidationResponse.from(service.preValidate(id));
+    }
+
     @PostMapping("/{id}/approve")
     @PreAuthorize("hasAuthority('APPROVE_SETTLEMENT')")
-    public SettlementDetail approve(@PathVariable long id) {
-        service.approve(id);
+    public SettlementDetail approve(@PathVariable long id,
+                                   @RequestBody(required = false) ApproveRequest r) {
+        service.approve(id, r == null || r.confirmed() == null || r.confirmed());
         return detail(service.require(id));
     }
 

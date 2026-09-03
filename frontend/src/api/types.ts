@@ -353,3 +353,30 @@ export interface Incentive {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface BankBalanceCheck {
+  id: number;
+  bankAccountLabel: string;
+  availableBalance: number;
+  requiredAmount: number;
+  remainingAfter: number;
+  sufficient: boolean;
+  method: 'MANUAL' | 'AUTOMATIC';
+  note?: string;
+  verifiedBy?: number;
+  verifiedAt: string;
+}
+
+export interface PreValidationCheck {
+  key: string;
+  label: string;
+  passed: boolean;
+  blocking: boolean;
+  detail?: string;
+  link?: string;
+}
+
+export interface PreValidationReport {
+  result: 'READY_FOR_APPROVAL' | 'BLOCKED';
+  checks: PreValidationCheck[];
+}

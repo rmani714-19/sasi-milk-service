@@ -28,13 +28,14 @@ import { api } from '../lib/api';
 import { litres, money } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
 import { StatusChip } from '../components/StatusChip';
+import { BankBalanceCard, OwnerApprovalDialog, PreValidationCard } from '../components/PaymentGates';
 import { ConfirmDialog, QueryBoundary, SectionTitle, useToast } from '../components/ui';
 import { useAuth } from '../lib/auth';
-import type { DailyCollectionRow, Payout, SettlementDetail, SettlementItem } from '../api/types';
+import type { BankBalanceCheck, DailyCollectionRow, Payout, PreValidationReport, SettlementDetail, SettlementItem } from '../api/types';
 
-const LIFECYCLE = ['DRAFT', 'CALCULATED', 'VERIFIED', 'APPROVED', 'PAID'] as const;
+const LIFECYCLE = ['Draft', 'Calculated', 'Verified', 'Bank balance', 'Pre-validation', 'Approved', 'Paid'] as const;
 
-function stepIndex(status: string): number {
+function stepIndex(status: string, balanceOk: boolean, preValReady: boolean): number {
   switch (status) {
     case 'DRAFT':
       return 0;
@@ -43,13 +44,13 @@ function stepIndex(status: string): number {
     case 'UNDER_VERIFICATION':
       return 1;
     case 'VERIFIED':
-      return 2;
+      return 2 + (balanceOk ? 1 : 0) + (balanceOk && preValReady ? 1 : 0);
     case 'APPROVED':
     case 'PAYOUT_INITIATED':
     case 'PARTIALLY_PAID':
-      return 3;
+      return 5;
     case 'PAID':
-      return 4;
+      return 6;
     default:
       return 0;
   }
@@ -64,6 +65,9 @@ export function SettlementDetailPage() {
   const [detailFor, setDetailFor] = useState<SettlementItem | null>(null);
   const [utrFor, setUtrFor] = useState<Payout | null>(null);
   const [utr, setUtr] = useState('');
+  const [balance, setBalanceCheck] = useState<BankBalanceCheck | null>(null);
+  const [preVal, setPreVal] = useState<PreValidationReport | null>(null);
+  const [approveOpen, setApproveOpen] = useState(false);
 
   const detail = useQuery({
     queryKey: ['settlement', id],
@@ -110,6 +114,15 @@ export function SettlementDetailPage() {
     },
     onError: toast.fromError,
   });
+  const approveMut = useMutation({
+    mutationFn: async () => (await api.post(`/settlements/${id}/approve`, { confirmed: true })).data,
+    onSuccess: () => {
+      toast.success('Payment batch approved');
+      setApproveOpen(false);
+      invalidate();
+    },
+    onError: toast.fromError,
+  });
   const payoutAction = (payoutId: number, path: string, body?: unknown) =>
     api.post(`/payouts/${payoutId}/${path}`, body).then(invalidate);
 
@@ -117,11 +130,17 @@ export function SettlementDetailPage() {
     <QueryBoundary query={detail}>
       {(s) => {
         const busy = lifecycle.isPending || initiatePayouts.isPending || verifyItem.isPending;
-        const active = stepIndex(s.status);
-        const terminal = s.status === 'CANCELLED' || s.status === 'FAILED';
         const legacyAll = s.paymentFrequency === 'ALL';
+        const balanceOk =
+          !!balance?.sufficient && Number(balance.requiredAmount) === Number(s.totalNetPayable);
+        const preValReady = preVal?.result === 'READY_FOR_APPROVAL';
+        const active = stepIndex(s.status, balanceOk, preValReady);
+        const terminal = s.status === 'CANCELLED' || s.status === 'FAILED';
         const preApproval = ['CALCULATED', 'REVIEWED', 'UNDER_VERIFICATION', 'VERIFIED'].includes(s.status);
         const canApprove = s.status === 'VERIFIED' || (legacyAll && s.status === 'REVIEWED');
+        const showGates = ['VERIFIED', 'APPROVED', 'PAYOUT_INITIATED', 'PARTIALLY_PAID', 'PAID', 'FAILED'].includes(s.status)
+          || (legacyAll && s.status === 'REVIEWED');
+        const gatesPass = legacyAll && s.status === 'REVIEWED' ? true : balanceOk && preValReady;
         return (
           <>
             <PageHeader
@@ -136,9 +155,7 @@ export function SettlementDetailPage() {
                   {LIFECYCLE.map((label, i) => (
                     <Step key={label}>
                       <StepLabel error={terminal && i === active}>
-                        {label === 'VERIFIED' && s.status === 'UNDER_VERIFICATION'
-                          ? 'Verifying…'
-                          : label.charAt(0) + label.slice(1).toLowerCase()}
+                        {label === 'Verified' && s.status === 'UNDER_VERIFICATION' ? 'Verifying…' : label}
                       </StepLabel>
                     </Step>
                   ))}
@@ -169,7 +186,12 @@ export function SettlementDetailPage() {
                 </Button>
               )}
               {canApprove && can('APPROVE_SETTLEMENT') && (
-                <Button variant="contained" color="success" disabled={busy} onClick={() => run('approve', 'Approved')}>
+                <Button
+                  variant="contained"
+                  color="success"
+                  disabled={busy || !gatesPass}
+                  onClick={() => setApproveOpen(true)}
+                >
                   Approve
                 </Button>
               )}
@@ -308,6 +330,19 @@ export function SettlementDetailPage() {
               </TableContainer>
             </Card>
 
+            {showGates && (
+              <>
+                <SectionTitle>Bank balance &amp; pre-validation</SectionTitle>
+                <BankBalanceCard
+                  base={`/settlements/${id}`}
+                  requiredAmount={s.totalNetPayable}
+                  canVerify={can('VERIFY_PAYMENT') || can('APPROVE_SETTLEMENT') || can('PROCESS_PAYMENT')}
+                  onChange={setBalanceCheck}
+                />
+                <PreValidationCard base={`/settlements/${id}`} onResult={setPreVal} />
+              </>
+            )}
+
             {payouts.data && payouts.data.length > 0 && (
               <>
                 <SectionTitle>Payouts</SectionTitle>
@@ -362,6 +397,22 @@ export function SettlementDetailPage() {
             )}
 
             <ProducerBreakdownDialog settlementId={id!} item={detailFor} onClose={() => setDetailFor(null)} />
+
+            <OwnerApprovalDialog
+              open={approveOpen}
+              busy={approveMut.isPending}
+              lines={[
+                ['Payment batch', s.settlementNumber],
+                ['Recipients', String(s.totalProducers)],
+                ['Total litres', litres(s.totalLitres)],
+                ['Total amount', money(s.totalNetPayable)],
+                ['Bank balance', balance ? money(balance.availableBalance) : '—'],
+                ['Remaining after', balance ? money(balance.remainingAfter) : '—'],
+                ['Validation', preVal?.result.replace(/_/g, ' ') ?? '—'],
+              ]}
+              onConfirm={() => approveMut.mutate()}
+              onClose={() => setApproveOpen(false)}
+            />
 
             <ConfirmDialog
               open={confirmCancel}

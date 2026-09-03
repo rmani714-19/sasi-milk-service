@@ -34,22 +34,37 @@ import { useAuth } from '../../lib/auth';
 import { PageHeader } from '../../components/PageHeader';
 import { FormSection } from '../../components/FormSection';
 import { StatusChip } from '../../components/StatusChip';
+import { BankBalanceCard, OwnerApprovalDialog, PreValidationCard } from '../../components/PaymentGates';
 import { ConfirmDialog, EmptyState, QueryBoundary, SectionTitle, TableSkeleton, useToast } from '../../components/ui';
 import type {
+  BankBalanceCheck,
   Driver,
   DriverBankDetails,
+  PreValidationReport,
   SalaryBatchDetail,
   SalaryBatchSummary,
   SalaryItem,
   VehicleStatus,
 } from '../../api/types';
 
-const LIFECYCLE = ['DRAFT', 'CALCULATED', 'REVIEWED', 'APPROVED', 'PAID'] as const;
-function stepIndex(s: string) {
-  const i = LIFECYCLE.indexOf(s as (typeof LIFECYCLE)[number]);
-  if (i >= 0) return i;
-  if (s === 'PAYMENT_INITIATED' || s === 'PARTIALLY_PAID') return 4;
-  return 0;
+const LIFECYCLE = ['Draft', 'Calculated', 'Reviewed', 'Bank balance', 'Pre-validation', 'Approved', 'Paid'] as const;
+function stepIndex(s: string, balanceOk = false, preValReady = false) {
+  switch (s) {
+    case 'DRAFT':
+      return 0;
+    case 'CALCULATED':
+      return 1;
+    case 'REVIEWED':
+      return 2 + (balanceOk ? 1 : 0) + (balanceOk && preValReady ? 1 : 0);
+    case 'APPROVED':
+    case 'PAYMENT_INITIATED':
+    case 'PARTIALLY_PAID':
+      return 5;
+    case 'PAID':
+      return 6;
+    default:
+      return 0;
+  }
 }
 const monthKey = () => new Date().toISOString().slice(0, 7);
 
@@ -77,6 +92,9 @@ function SalaryRuns() {
   const [editItem, setEditItem] = useState<SalaryItem | null>(null);
   const [payItem, setPayItem] = useState<SalaryItem | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [balanceCheck, setBalanceCheck] = useState<BankBalanceCheck | null>(null);
+  const [preVal, setPreVal] = useState<PreValidationReport | null>(null);
+  const [approveOpen, setApproveOpen] = useState(false);
 
   const batches = useQuery({
     queryKey: ['salary-batches'],
@@ -150,6 +168,15 @@ function SalaryRuns() {
     },
     onError: toast.fromError,
   });
+  const approveMut = useMutation({
+    mutationFn: async () => (await api.post(`/salary-batches/${selectedId}/approve`, { confirmed: true })).data,
+    onSuccess: () => {
+      toast.success('Salary batch approved');
+      setApproveOpen(false);
+      invalidate();
+    },
+    onError: toast.fromError,
+  });
 
   const d = detail.data;
   const editable = d && ['DRAFT', 'CALCULATED', 'REVIEWED'].includes(d.status);
@@ -191,7 +218,11 @@ function SalaryRuns() {
         </Card>
       ) : (
         <QueryBoundary query={detail} skeleton={<TableSkeleton cols={8} />}>
-          {(b) => (
+          {(b) => {
+            const balanceOk = !!balanceCheck?.sufficient && Number(balanceCheck.requiredAmount) === Number(b.totalNet);
+            const preValReady = preVal?.result === 'READY_FOR_APPROVAL';
+            const showGates = ['REVIEWED', 'APPROVED', 'PAYMENT_INITIATED', 'PARTIALLY_PAID', 'PAID', 'FAILED'].includes(b.status);
+            return (
             <>
               <Card sx={{ mb: 2 }}>
                 <CardContent>
@@ -204,12 +235,10 @@ function SalaryRuns() {
                     </Typography>
                     <StatusChip status={b.status} />
                   </Stack>
-                  <Stepper activeStep={stepIndex(b.status)} alternativeLabel sx={{ mt: 2 }}>
+                  <Stepper activeStep={stepIndex(b.status, balanceOk, preValReady)} alternativeLabel sx={{ mt: 2 }}>
                     {LIFECYCLE.map((s) => (
                       <Step key={s}>
-                        <StepLabel error={b.status === 'CANCELLED' || b.status === 'FAILED'}>
-                          {s.charAt(0) + s.slice(1).toLowerCase()}
-                        </StepLabel>
+                        <StepLabel error={b.status === 'CANCELLED' || b.status === 'FAILED'}>{s}</StepLabel>
                       </Step>
                     ))}
                   </Stepper>
@@ -225,7 +254,12 @@ function SalaryRuns() {
                       </Button>
                     )}
                     {b.status === 'REVIEWED' && (
-                      <Button variant="contained" color="success" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate({ path: 'approve', ok: 'Approved' })}>
+                      <Button
+                        variant="contained"
+                        color="success"
+                        disabled={lifecycle.isPending || !(balanceOk && preValReady)}
+                        onClick={() => setApproveOpen(true)}
+                      >
                         Approve
                       </Button>
                     )}
@@ -237,6 +271,19 @@ function SalaryRuns() {
                   </Stack>
                 </CardContent>
               </Card>
+
+              {showGates && (
+                <>
+                  <SectionTitle>Bank balance &amp; pre-validation</SectionTitle>
+                  <BankBalanceCard
+                    base={`/salary-batches/${b.id}`}
+                    requiredAmount={b.totalNet}
+                    canVerify
+                    onChange={setBalanceCheck}
+                  />
+                  <PreValidationCard base={`/salary-batches/${b.id}`} onResult={setPreVal} />
+                </>
+              )}
 
               <Grid container spacing={2} sx={{ mb: 2 }}>
                 {[
@@ -328,8 +375,26 @@ function SalaryRuns() {
                 )}
               </Card>
             </>
-          )}
+            );
+          }}
         </QueryBoundary>
+      )}
+
+      {detail.data && (
+        <OwnerApprovalDialog
+          open={approveOpen}
+          busy={approveMut.isPending}
+          lines={[
+            ['Salary batch', detail.data.batchNumber],
+            ['Drivers', String(detail.data.totalDrivers)],
+            ['Net salary', money(detail.data.totalNet)],
+            ['Bank balance', balanceCheck ? money(balanceCheck.availableBalance) : '—'],
+            ['Remaining after', balanceCheck ? money(balanceCheck.remainingAfter) : '—'],
+            ['Validation', preVal?.result.replace(/_/g, ' ') ?? '—'],
+          ]}
+          onConfirm={() => approveMut.mutate()}
+          onClose={() => setApproveOpen(false)}
+        />
       )}
 
       <EditItemDialog item={editItem} busy={saveItem.isPending} onClose={() => setEditItem(null)} onSave={(body) => editItem && saveItem.mutate({ id: editItem.id, body })} />

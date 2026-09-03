@@ -14,6 +14,9 @@ import com.sasimilkservice.driversalary.domain.DriverSalaryItem.PaymentMethod;
 import com.sasimilkservice.driversalary.domain.DriverSalaryItem.PaymentStatus;
 import com.sasimilkservice.driversalary.repository.DriverSalaryBatchRepository;
 import com.sasimilkservice.driversalary.repository.DriverSalaryItemRepository;
+import com.sasimilkservice.paymentops.domain.BankBalanceCheck;
+import com.sasimilkservice.paymentops.service.PaymentOpsService;
+import com.sasimilkservice.paymentops.service.PreValidation;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,13 +40,15 @@ public class DriverSalaryService {
     private final DriverSalaryBatchRepository batches;
     private final DriverSalaryItemRepository items;
     private final DriverRepository drivers;
+    private final PaymentOpsService paymentOps;
     private final AuditRecorder audit;
 
     public DriverSalaryService(DriverSalaryBatchRepository batches, DriverSalaryItemRepository items,
-                               DriverRepository drivers, AuditRecorder audit) {
+                               DriverRepository drivers, PaymentOpsService paymentOps, AuditRecorder audit) {
         this.batches = batches;
         this.items = items;
         this.drivers = drivers;
+        this.paymentOps = paymentOps;
         this.audit = audit;
     }
 
@@ -192,8 +197,50 @@ public class DriverSalaryService {
         return b;
     }
 
+    /** Pre-approval checklist for a salary batch. */
+    public PreValidation.Report preValidate(long batchId) {
+        DriverSalaryBatch b = require(batchId);
+        List<DriverSalaryItem> lines = items(batchId);
+        java.math.BigDecimal sumNet = lines.stream().map(DriverSalaryItem::getNetSalary)
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+        Map<Long, Driver> byId = drivers.findAll().stream()
+                .collect(Collectors.toMap(Driver::getId, Function.identity()));
+        long missingBank = lines.stream().filter(i -> {
+            Driver d = byId.get(i.getDriverId());
+            return d == null || !d.isBankComplete();
+        }).count();
+        long paidAlready = lines.stream()
+                .filter(i -> i.getPaymentStatus() == DriverSalaryItem.PaymentStatus.PAID).count();
+        var balance = paymentOps.latest(BankBalanceCheck.SubjectType.SALARY_BATCH, batchId);
+        boolean balanceVerified = balance.isPresent();
+        boolean balanceSufficient = paymentOps.balanceCovered(
+                BankBalanceCheck.SubjectType.SALARY_BATCH, batchId, b.getTotalNet());
+
+        return PreValidation.builder()
+                .blocking("recipients", "All salary lines present",
+                        !lines.isEmpty() && lines.size() == b.getTotalDrivers(),
+                        "Recalculate the batch", "/payments/drivers")
+                .blocking("totals_match", "Batch total matches line totals",
+                        MoneyMath.money(sumNet).compareTo(MoneyMath.money(b.getTotalNet())) == 0,
+                        "Sum of lines " + MoneyMath.money(sumNet) + " != batch " + b.getTotalNet(), null)
+                .blocking("bank_balance_verified", "Bank balance verified", balanceVerified,
+                        "Record the owner's available bank balance", "/payments/drivers")
+                .blocking("bank_balance_sufficient", "Sufficient bank balance", balanceSufficient,
+                        "Latest balance check does not cover " + MoneyMath.money(b.getTotalNet()), "/payments/drivers")
+                .info("bank_details", "Bank details complete for every driver", missingBank == 0,
+                        missingBank == 0 ? "all set" : missingBank + " driver(s) incomplete — pay those by cash")
+                .info("not_paid", "No line already paid", paidAlready == 0,
+                        paidAlready == 0 ? "none" : paidAlready + " line(s) already PAID")
+                .build();
+    }
+
     @Transactional
     public DriverSalaryBatch approve(long batchId) {
+        return approve(batchId, true);
+    }
+
+    @Transactional
+    public DriverSalaryBatch approve(long batchId, boolean confirmed) {
         DriverSalaryBatch b = require(batchId);
         if (b.getStatus() != Status.REVIEWED) {
             throw new BusinessRuleException("Only a reviewed batch can be approved");
@@ -201,11 +248,21 @@ public class DriverSalaryService {
         if (items(batchId).isEmpty()) {
             throw new BusinessRuleException("Nothing to approve — calculate the batch first");
         }
+        if (!paymentOps.balanceCovered(BankBalanceCheck.SubjectType.SALARY_BATCH, batchId, b.getTotalNet())) {
+            throw new BusinessRuleException("Owner bank balance is not verified as sufficient for "
+                    + MoneyMath.money(b.getTotalNet()) + " — verify the bank balance before approval");
+        }
+        if (preValidate(batchId).result() != PreValidation.Result.READY_FOR_APPROVAL) {
+            throw new BusinessRuleException("Pre-validation is BLOCKED — resolve the failing checks before approval");
+        }
+        if (!confirmed) {
+            throw new BusinessRuleException("Approval must be explicitly confirmed by the owner / manager");
+        }
         b.setStatus(Status.APPROVED);
         b.setApprovedAt(Instant.now());
         CurrentUser.id().ifPresent(b::setApprovedBy);
         audit.record("SALARY_BATCH_APPROVED", "DriverSalaryBatch", batchId,
-                b.getBatchNumber() + " approved, net payable " + b.getTotalNet());
+                b.getBatchNumber() + " approved (owner-confirmed), net payable " + b.getTotalNet());
         return b;
     }
 
