@@ -10,6 +10,8 @@ export interface PendingCollection {
   fat: number;
   snf: number;
   source: 'OFFLINE_SYNC';
+  /** scale identifier when the quantity came from the weighing machine */
+  deviceId?: string;
   queuedAt: number;
   lastError?: string;
 }
@@ -60,6 +62,7 @@ export async function syncPending(): Promise<{ synced: number; failed: number }>
         fat: p.fat,
         snf: p.snf,
         source: 'OFFLINE_SYNC',
+        ...(p.deviceId ? { deviceId: p.deviceId } : {}),
       });
       await d.delete('pending-collections', p.clientTransactionId);
       synced += 1;

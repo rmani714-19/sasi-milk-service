@@ -33,18 +33,36 @@ import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import WbSunnyOutlinedIcon from '@mui/icons-material/WbSunnyOutlined';
 import Brightness3OutlinedIcon from '@mui/icons-material/Brightness3Outlined';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ScaleOutlinedIcon from '@mui/icons-material/ScaleOutlined';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { litres as fmtL, money, rate as fmtRate, today, uuid } from '../lib/format';
 import { queueCollection } from '../lib/offline';
 import { useRegions } from '../api/common';
 import { regionShort } from '../lib/region';
+import { useWeightBridge } from '../lib/weightBridge';
+import { CollectionModeSelector, type CollectionMode } from '../components/collection/CollectionModeSelector';
+import { WeightMachineStatus } from '../components/collection/WeightMachineStatus';
+import { WeightDisplay } from '../components/collection/WeightDisplay';
 import { PrintableReceipt } from '../components/PrintableReceipt';
 import { StatusChip } from '../components/StatusChip';
 import { useToast } from '../components/ui';
 import type { CenterSettings, Collection, Page, Producer, RatePreview } from '../api/types';
 
 type Shift = 'MORNING' | 'EVENING';
+
+const MODE_KEY = 'sasi.collectionMode';
+const SCALE_ID = 'iScale i-05-RS232';
+/** below this the scale pan is considered empty and ready for the next can */
+const REARM_KG = 0.15;
+
+function readMode(): CollectionMode {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'MANUAL' ? 'MANUAL' : 'AUTO';
+  } catch {
+    return 'AUTO';
+  }
+}
 
 /** MORNING for 6am–12pm, EVENING for 1pm onward (per center operating hours). */
 function shiftForNow(d = new Date()): Shift {
@@ -82,6 +100,13 @@ export function CollectionPage() {
   const [lastSaved, setLastSaved] = useState<Collection | null>(null);
   const [receiptFor, setReceiptFor] = useState<Collection | null>(null);
   const [recentProducers, setRecentProducers] = useState<Producer[]>([]);
+
+  // scale / entry mode
+  const [mode, setMode] = useState<CollectionMode>(readMode);
+  const [armed, setArmed] = useState(true); // AUTO: can capture the next stable weight
+  const [entryModeById, setEntryModeById] = useState<Record<string, CollectionMode>>({});
+  const capturedFocus = useRef(false);
+  const bridge = useWeightBridge(mode === 'AUTO');
 
   // recent-list view controls
   const [listShift, setListShift] = useState<'ALL' | Shift>('ALL');
@@ -129,7 +154,8 @@ export function CollectionPage() {
     setNotFound(false);
     setRef(p.producerNumber);
     setRecentProducers((prev) => [p, ...prev.filter((x) => x.id !== p.id)].slice(0, 6));
-    setTimeout(() => litresRef.current?.focus(), 0);
+    // AUTO has no litres field — jump straight to FAT
+    setTimeout(() => (mode === 'AUTO' ? fatRef : litresRef).current?.focus(), 0);
   }
 
   async function resolveProducer(q?: string) {
@@ -181,9 +207,59 @@ export function CollectionPage() {
     return preview && l ? l * preview.ratePerLitre : null;
   }, [litres, preview]);
 
+  // AUTO: mirror the stable scale weight into the litres field
+  useEffect(() => {
+    if (mode !== 'AUTO' || !armed || !bridge.stableHeld) return;
+    const kg = bridge.weightKg ?? 0;
+    if (kg < 0.05) return;
+    if (Math.abs(Number(litres) - kg) > 0.0005) setLitres(kg.toFixed(3));
+    if (!capturedFocus.current && !fat) {
+      capturedFocus.current = true;
+      setTimeout(() => fatRef.current?.focus(), 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, armed, bridge.stableHeld, bridge.weightKg]);
+
+  // AUTO: re-arm once the pan has been emptied after a save
+  useEffect(() => {
+    if (mode === 'AUTO' && !armed && (bridge.weightKg ?? 1) < REARM_KG) setArmed(true);
+  }, [mode, armed, bridge.weightKg]);
+
+  function switchMode(m: CollectionMode) {
+    if (m === mode) return;
+    if (mode === 'MANUAL' && m === 'AUTO' && Number(litres) > 0) {
+      if (!window.confirm('Switch to Automatic Scale? The quantity you typed will be replaced by the scale reading.')) {
+        return;
+      }
+      setLitres('');
+    }
+    if (mode === 'AUTO' && m === 'MANUAL') {
+      // keep the captured weight as an editable starting value — nothing is lost
+      capturedFocus.current = false;
+    }
+    setArmed(true);
+    setMode(m);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function doTare() {
+    const r = await bridge.tare();
+    if (r.ok) toast.success('Tare command sent to the scale');
+    else toast.error(r.instruction ?? 'Press the ZERO / TARE button on the scale');
+  }
+
   const errors = {
     producer: !producer && !(notFound && ref.trim()) ? 'Scan or pick a producer' : '',
-    litres: Number(litres) > 0 ? '' : 'Enter litres',
+    litres:
+      Number(litres) > 0
+        ? ''
+        : mode === 'AUTO'
+          ? 'Waiting for a stable weight from the scale'
+          : 'Enter litres',
     fat: Number(fat) > 0 ? '' : 'Enter FAT %',
     snf: Number(snf) > 0 ? '' : 'Enter SNF %',
   };
@@ -196,6 +272,8 @@ export function CollectionPage() {
     setSnf('');
     setPreview(null);
     setTriedSave(false);
+    capturedFocus.current = false;
+    if (mode === 'AUTO') setArmed(false); // wait for the pan to be emptied
     if (!keepProducer) {
       setRef('');
       setProducer(null);
@@ -208,6 +286,7 @@ export function CollectionPage() {
     setTriedSave(true);
     if (!canSave || saving) return;
     setSaving(true);
+    const entryMode = mode;
     const payload = {
       clientTransactionId: uuid(),
       producerReference: producer?.producerNumber ?? ref.trim(),
@@ -216,12 +295,14 @@ export function CollectionPage() {
       litres: Number(litres),
       fat: Number(fat),
       snf: Number(snf),
+      ...(entryMode === 'AUTO' ? { deviceId: SCALE_ID } : {}),
     };
     try {
       if (!navigator.onLine) throw new Error('offline');
       const { data } = await api.post<Collection>('/collections', payload);
       toast.success(`${data.collectionNumber} · ${fmtL(data.litres)} · ${money(data.breakdown.netAmount)}`);
       setLastSaved(data);
+      setEntryModeById((m) => ({ ...m, [data.collectionNumber]: entryMode }));
       qc.invalidateQueries({ queryKey: ['collections'] });
       resetEntry(false);
       if (alsoPrint) print(data);
@@ -317,6 +398,8 @@ export function CollectionPage() {
             </ToggleButton>
           </ToggleButtonGroup>
 
+          {mode === 'AUTO' && <WeightMachineStatus status={bridge.status} onRetry={bridge.retry} />}
+
           <Figure label="Collected" value={expected ? `${collectedProducers} / ${expected}` : String(collectedProducers)} />
           <Figure label="Total litres" value={fmtL(shiftLitres)} />
         </Stack>
@@ -335,6 +418,16 @@ export function CollectionPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
           <Stack spacing={2.5}>
+            {/* mode selector — always visible, top of the entry area */}
+            <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={1}>
+              <CollectionModeSelector value={mode} onChange={switchMode} />
+              {mode === 'MANUAL' ? (
+                <Chip size="small" color="warning" variant="outlined" label="Manual Entry Mode" sx={{ fontWeight: 600 }} />
+              ) : (
+                <WeightMachineStatus status={bridge.status} onRetry={bridge.retry} />
+              )}
+            </Stack>
+
             {/* producer */}
             <Box>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
@@ -379,27 +472,86 @@ export function CollectionPage() {
               <Typography variant="overline" color="text.secondary">
                 Milk details
               </Typography>
-              <Grid container spacing={2} sx={{ mt: 0 }}>
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <TextField
-                    label="Litres"
-                    type="number"
-                    value={litres}
-                    onChange={(e) => setLitres(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (isEnter(e)) {
-                        e.preventDefault();
-                        fatRef.current?.focus();
-                      }
-                    }}
-                    error={!!showErr('litres')}
-                    helperText={showErr('litres')}
-                    inputRef={litresRef}
-                    inputProps={{ step: '0.1', min: '0', inputMode: 'decimal', sx: { fontSize: 26, fontWeight: 700, py: 1.25 } }}
-                    InputProps={{ endAdornment: <InputAdornment position="end">L</InputAdornment> }}
+
+              {mode === 'AUTO' && (
+                <Box sx={{ mt: 1 }}>
+                  <WeightDisplay
+                    status={bridge.status}
+                    weightKg={bridge.weightKg}
+                    unit={bridge.unit}
+                    stable={bridge.stable}
+                    stableHeld={bridge.stableHeld}
+                    armed={armed}
                   />
-                </Grid>
-                <Grid size={{ xs: 6, sm: 3 }}>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1.5}
+                    alignItems={{ sm: 'center' }}
+                    sx={{ mt: 1.5 }}
+                  >
+                    <Box
+                      sx={{
+                        px: 2,
+                        py: 1,
+                        borderRadius: 2,
+                        bgcolor: 'primary.light',
+                        border: 1,
+                        borderColor: 'primary.main',
+                      }}
+                    >
+                      <Typography variant="caption" color="text.secondary">
+                        Collection quantity
+                      </Typography>
+                      <Typography sx={{ fontSize: 20, fontWeight: 800 }} color="primary.dark">
+                        {litres ? `${litres} L` : '—'}
+                      </Typography>
+                    </Box>
+                    <Button
+                      variant="outlined"
+                      onClick={doTare}
+                      disabled={bridge.status !== 'connected'}
+                      sx={{ whiteSpace: 'nowrap' }}
+                    >
+                      ZERO / TARE
+                    </Button>
+                    {bridge.status !== 'connected' && (
+                      <Button color="warning" variant="text" onClick={() => switchMode('MANUAL')}>
+                        Scale unavailable — use Manual Entry
+                      </Button>
+                    )}
+                  </Stack>
+                  {!!showErr('litres') && (
+                    <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+                      {showErr('litres')}
+                    </Typography>
+                  )}
+                </Box>
+              )}
+
+              <Grid container spacing={2} sx={{ mt: 0 }}>
+                {mode === 'MANUAL' && (
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      label="Milk Quantity"
+                      type="number"
+                      value={litres}
+                      onChange={(e) => setLitres(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (isEnter(e)) {
+                          e.preventDefault();
+                          fatRef.current?.focus();
+                        }
+                      }}
+                      error={!!showErr('litres')}
+                      helperText={showErr('litres')}
+                      inputRef={litresRef}
+                      autoFocus={false}
+                      inputProps={{ step: '0.1', min: '0', inputMode: 'decimal', sx: { fontSize: 26, fontWeight: 700, py: 1.25 } }}
+                      InputProps={{ endAdornment: <InputAdornment position="end">L</InputAdornment> }}
+                    />
+                  </Grid>
+                )}
+                <Grid size={{ xs: 6, sm: mode === 'MANUAL' ? 3 : 6 }}>
                   <TextField
                     label="FAT"
                     type="number"
@@ -418,7 +570,7 @@ export function CollectionPage() {
                     InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
                   />
                 </Grid>
-                <Grid size={{ xs: 6, sm: 3 }}>
+                <Grid size={{ xs: 6, sm: mode === 'MANUAL' ? 3 : 6 }}>
                   <TextField
                     label="SNF"
                     type="number"
@@ -563,6 +715,7 @@ export function CollectionPage() {
                 <TableCell align="right">SNF</TableCell>
                 <TableCell align="right">Rate</TableCell>
                 <TableCell align="right">Amount</TableCell>
+                <TableCell>Mode</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell align="right" />
               </TableRow>
@@ -583,6 +736,20 @@ export function CollectionPage() {
                     {money(c.breakdown.netAmount)}
                   </TableCell>
                   <TableCell>
+                    {entryModeById[c.collectionNumber] ? (
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        icon={entryModeById[c.collectionNumber] === 'AUTO' ? <ScaleOutlinedIcon /> : undefined}
+                        label={entryModeById[c.collectionNumber]}
+                      />
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        —
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <StatusChip status={c.status} />
                   </TableCell>
                   <TableCell align="right" padding="none">
@@ -596,7 +763,7 @@ export function CollectionPage() {
               ))}
               {listRows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10} sx={{ textAlign: 'center', py: 5, color: 'text.secondary' }}>
+                  <TableCell colSpan={11} sx={{ textAlign: 'center', py: 5, color: 'text.secondary' }}>
                     {listActive ? (
                       'No collections match this filter.'
                     ) : (
