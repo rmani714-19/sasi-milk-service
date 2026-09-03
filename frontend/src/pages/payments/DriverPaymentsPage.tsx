@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
@@ -28,11 +29,20 @@ import AddIcon from '@mui/icons-material/Add';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { money } from '../../lib/format';
+import * as V from '../../lib/validate';
+import { useAuth } from '../../lib/auth';
 import { PageHeader } from '../../components/PageHeader';
 import { FormSection } from '../../components/FormSection';
 import { StatusChip } from '../../components/StatusChip';
 import { ConfirmDialog, EmptyState, QueryBoundary, SectionTitle, TableSkeleton, useToast } from '../../components/ui';
-import type { Driver, SalaryBatchDetail, SalaryBatchSummary, SalaryItem, VehicleStatus } from '../../api/types';
+import type {
+  Driver,
+  DriverBankDetails,
+  SalaryBatchDetail,
+  SalaryBatchSummary,
+  SalaryItem,
+  VehicleStatus,
+} from '../../api/types';
 
 const LIFECYCLE = ['DRAFT', 'CALCULATED', 'REVIEWED', 'APPROVED', 'PAID'] as const;
 function stepIndex(s: string) {
@@ -80,6 +90,11 @@ function SalaryRuns() {
     queryKey: ['salary-batch', selectedId],
     queryFn: async () => (await api.get<SalaryBatchDetail>(`/salary-batches/${selectedId}`)).data,
     enabled: selectedId != null,
+  });
+  const driverList = useQuery({
+    queryKey: ['drivers'],
+    queryFn: async () => (await api.get<Driver[]>('/drivers')).data,
+    staleTime: 60_000,
   });
 
   const invalidate = () => {
@@ -318,7 +333,13 @@ function SalaryRuns() {
       )}
 
       <EditItemDialog item={editItem} busy={saveItem.isPending} onClose={() => setEditItem(null)} onSave={(body) => editItem && saveItem.mutate({ id: editItem.id, body })} />
-      <PayDialog item={payItem} busy={doPay.isPending} onClose={() => setPayItem(null)} onPay={(body) => payItem && doPay.mutate({ id: payItem.id, body })} />
+      <PayDialog
+        item={payItem}
+        driver={payItem ? driverList.data?.find((x) => x.id === payItem.driverId) : undefined}
+        busy={doPay.isPending}
+        onClose={() => setPayItem(null)}
+        onPay={(body) => payItem && doPay.mutate({ id: payItem.id, body })}
+      />
       <ConfirmDialog
         open={confirmCancel}
         title="Cancel this salary run?"
@@ -448,11 +469,13 @@ function EditItemDialog({
 
 function PayDialog({
   item,
+  driver,
   busy,
   onClose,
   onPay,
 }: {
   item: SalaryItem | null;
+  driver?: Driver;
   busy: boolean;
   onClose: () => void;
   onPay: (body: Record<string, unknown>) => void;
@@ -468,6 +491,7 @@ function PayDialog({
     }
   }, [item]);
   const needsRef = method !== 'CASH';
+  const bankBlocked = method === 'BANK_TRANSFER' && driver != null && !driver.bankComplete;
   return (
     <Dialog open={!!item} onClose={onClose} fullWidth maxWidth="xs">
       <DialogTitle>Record salary payment</DialogTitle>
@@ -481,6 +505,16 @@ function PayDialog({
             <MenuItem value="CASH">Cash</MenuItem>
             <MenuItem value="OTHER">Other</MenuItem>
           </TextField>
+          {bankBlocked && (
+            <Alert severity="warning">
+              Bank details are incomplete. Update the driver's bank details before processing salary, or pay by cash.
+            </Alert>
+          )}
+          {method === 'BANK_TRANSFER' && driver?.bankComplete && (
+            <Typography variant="caption" color="text.secondary">
+              To {driver.bankName} · {driver.accountNumberMasked} · {driver.ifscCode}
+            </Typography>
+          )}
           <TextField
             label={needsRef ? 'Reference / UTR' : 'Reference (optional)'}
             value={reference}
@@ -493,7 +527,7 @@ function PayDialog({
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"
-          disabled={busy || (needsRef && !reference.trim())}
+          disabled={busy || bankBlocked || (needsRef && !reference.trim())}
           onClick={() => onPay({ method, reference: reference.trim() || undefined, note: note.trim() || undefined })}
         >
           {busy ? 'Saving…' : 'Mark paid'}
@@ -508,8 +542,11 @@ function PayDialog({
 function DriversTab() {
   const toast = useToast();
   const qc = useQueryClient();
+  const { can } = useAuth();
+  const canViewBank = can('PROCESS_PAYMENT') || can('ALL');
   const [dialog, setDialog] = useState<{ mode: 'add' } | { mode: 'edit'; row: Driver } | null>(null);
   const [deactivate, setDeactivate] = useState<Driver | null>(null);
+  const [bankFor, setBankFor] = useState<Driver | null>(null);
 
   const list = useQuery({ queryKey: ['drivers'], queryFn: async () => (await api.get<Driver[]>('/drivers')).data });
   const vehicles = useQuery({
@@ -556,55 +593,72 @@ function DriversTab() {
       <Card>
         <QueryBoundary
           query={list}
-          skeleton={<TableSkeleton cols={6} />}
+          skeleton={<TableSkeleton cols={9} />}
           empty={(d) => d.length === 0}
           emptyState={<EmptyState title="No drivers" description="Add drivers to run monthly salary." />}
         >
           {(d) => (
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Code</TableCell>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Mobile</TableCell>
-                  <TableCell>Vehicle</TableCell>
-                  <TableCell>Salary</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell align="right">Action</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {d.map((row) => (
-                  <TableRow key={row.id} hover>
-                    <TableCell sx={{ fontWeight: 600 }}>{row.code}</TableCell>
-                    <TableCell>{row.name}</TableCell>
-                    <TableCell>{row.mobile ?? '—'}</TableCell>
-                    <TableCell>{vName(row.vehicleId)}</TableCell>
-                    <TableCell>
-                      {row.salaryType === 'PER_DAY'
-                        ? `${money(row.perDayRate)}/day`
-                        : `${money(row.monthlySalary)}/mo`}
-                      <Chip size="small" variant="outlined" label={row.salaryType} sx={{ ml: 1 }} />
-                    </TableCell>
-                    <TableCell>
-                      <StatusChip status={row.status} />
-                    </TableCell>
-                    <TableCell align="right">
-                      <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                        <Button size="small" onClick={() => setDialog({ mode: 'edit', row })}>
-                          Edit
-                        </Button>
-                        {row.status === 'ACTIVE' && (
-                          <Button size="small" color="error" onClick={() => setDeactivate(row)}>
-                            Deactivate
-                          </Button>
-                        )}
-                      </Stack>
-                    </TableCell>
+            <TableContainer sx={{ maxHeight: 'calc(100vh - 320px)' }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Driver ID</TableCell>
+                    <TableCell>Driver Name</TableCell>
+                    <TableCell>Mobile</TableCell>
+                    <TableCell>Vehicle</TableCell>
+                    <TableCell>Salary</TableCell>
+                    <TableCell>Bank</TableCell>
+                    <TableCell>Account</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell align="right">Actions</TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHead>
+                <TableBody>
+                  {d.map((row) => (
+                    <TableRow key={row.id} hover>
+                      <TableCell sx={{ fontWeight: 600 }}>{row.code}</TableCell>
+                      <TableCell>{row.name}</TableCell>
+                      <TableCell>{row.mobile ?? '—'}</TableCell>
+                      <TableCell>{vName(row.vehicleId)}</TableCell>
+                      <TableCell>
+                        {row.salaryType === 'PER_DAY'
+                          ? `${money(row.perDayRate)}/day`
+                          : `${money(row.monthlySalary)}/mo`}
+                        <Chip size="small" variant="outlined" label={row.salaryType} sx={{ ml: 1 }} />
+                      </TableCell>
+                      <TableCell>
+                        {row.bankName ?? (
+                          <Chip size="small" color="warning" variant="outlined" label="Not set" />
+                        )}
+                      </TableCell>
+                      <TableCell sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                        {row.accountNumberMasked ?? '—'}
+                      </TableCell>
+                      <TableCell>
+                        <StatusChip status={row.status} />
+                      </TableCell>
+                      <TableCell align="right">
+                        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                          {canViewBank && row.bankComplete && (
+                            <Button size="small" onClick={() => setBankFor(row)}>
+                              View
+                            </Button>
+                          )}
+                          <Button size="small" onClick={() => setDialog({ mode: 'edit', row })}>
+                            Edit
+                          </Button>
+                          {row.status === 'ACTIVE' && (
+                            <Button size="small" color="error" onClick={() => setDeactivate(row)}>
+                              Deactivate
+                            </Button>
+                          )}
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
           )}
         </QueryBoundary>
       </Card>
@@ -617,6 +671,7 @@ function DriversTab() {
         onClose={() => setDialog(null)}
         onSave={(id, body) => save.mutate({ id, body })}
       />
+      <BankViewDialog driver={bankFor} onClose={() => setBankFor(null)} />
       <ConfirmDialog
         open={!!deactivate}
         title="Deactivate driver?"
@@ -630,6 +685,22 @@ function DriversTab() {
     </>
   );
 }
+
+const DRIVER_BLANK = {
+  name: '',
+  mobile: '',
+  joiningDate: '',
+  vehicleId: '',
+  salaryType: 'FIXED',
+  monthlySalary: '',
+  perDayRate: '',
+  status: 'ACTIVE',
+  accountHolderName: '',
+  accountNumber: '',
+  ifscCode: '',
+  bankName: '',
+  branchName: '',
+};
 
 function DriverDialog({
   state,
@@ -645,17 +716,10 @@ function DriverDialog({
   onSave: (id: number | undefined, body: Record<string, unknown>) => void;
 }) {
   const editing = state?.mode === 'edit' ? state.row : null;
-  const [f, setF] = useState({
-    name: '',
-    mobile: '',
-    joiningDate: '',
-    vehicleId: '',
-    salaryType: 'FIXED',
-    monthlySalary: '',
-    perDayRate: '',
-    status: 'ACTIVE',
-  });
+  const [f, setF] = useState(DRIVER_BLANK);
+  const [tried, setTried] = useState(false);
   useEffect(() => {
+    setTried(false);
     if (editing) {
       setF({
         name: editing.name,
@@ -666,71 +730,258 @@ function DriverDialog({
         monthlySalary: editing.monthlySalary != null ? String(editing.monthlySalary) : '',
         perDayRate: editing.perDayRate != null ? String(editing.perDayRate) : '',
         status: editing.status,
+        accountHolderName: editing.accountHolderName ?? '',
+        accountNumber: '',
+        ifscCode: editing.ifscCode ?? '',
+        bankName: editing.bankName ?? '',
+        branchName: editing.branchName ?? '',
       });
     } else {
-      setF({ name: '', mobile: '', joiningDate: '', vehicleId: '', salaryType: 'FIXED', monthlySalary: '', perDayRate: '', status: 'ACTIVE' });
+      setF(DRIVER_BLANK);
     }
   }, [state]);
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
-  const valid = !!f.name.trim() && (f.salaryType === 'PER_DAY' ? Number(f.perDayRate) > 0 : Number(f.monthlySalary) >= 0);
+  const set =
+    (k: keyof typeof f, transform?: (v: string) => string) =>
+    (e: { target: { value: string } }) =>
+      setF((s) => ({ ...s, [k]: transform ? transform(e.target.value) : e.target.value }));
+
+  const keepAccount = !!editing?.accountNumberMasked; // edit: blank account number = keep existing
+  const errors: Record<string, string> = {
+    name: V.required('Driver name')(f.name),
+    mobile: V.mobile(f.mobile, false),
+    monthlySalary: f.salaryType !== 'PER_DAY' && !(Number(f.monthlySalary) >= 0) ? 'Enter a monthly salary' : '',
+    perDayRate: f.salaryType === 'PER_DAY' && !(Number(f.perDayRate) > 0) ? 'Enter a per-day rate' : '',
+    accountHolderName: V.required('Account holder name')(f.accountHolderName),
+    accountNumber: V.accountNumber(f.accountNumber, keepAccount),
+    ifscCode: V.ifsc(f.ifscCode),
+    bankName: V.required('Bank name')(f.bankName),
+  };
+  const showErr = (k: string) => (tried ? errors[k] ?? '' : '');
+  const valid = V.allValid(errors);
+
+  const submit = () => {
+    setTried(true);
+    if (!valid) return;
+    onSave(editing?.id, {
+      name: f.name.trim(),
+      mobile: f.mobile.trim() || undefined,
+      joiningDate: f.joiningDate || undefined,
+      vehicleId: f.vehicleId ? Number(f.vehicleId) : undefined,
+      salaryType: f.salaryType,
+      monthlySalary: f.salaryType === 'PER_DAY' ? 0 : Number(f.monthlySalary || 0),
+      perDayRate: f.salaryType === 'PER_DAY' ? Number(f.perDayRate || 0) : undefined,
+      status: editing ? f.status : undefined,
+      accountHolderName: f.accountHolderName.trim(),
+      accountNumber: f.accountNumber.trim() || undefined,
+      ifscCode: f.ifscCode.trim().toUpperCase(),
+      bankName: f.bankName.trim(),
+      branchName: f.branchName.trim() || undefined,
+    });
+  };
 
   return (
-    <Dialog open={!!state} onClose={onClose} fullWidth maxWidth="xs">
+    <Dialog open={!!state} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle>{editing ? `Edit ${editing.code}` : 'Add driver'}</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2} sx={{ mt: 1 }}>
-          <TextField label="Driver name" value={f.name} onChange={set('name')} required />
-          <Stack direction="row" spacing={2}>
-            <TextField label="Mobile" value={f.mobile} onChange={set('mobile')} inputProps={{ inputMode: 'numeric' }} />
-            <TextField label="Joining date" type="date" value={f.joiningDate} onChange={set('joiningDate')} InputLabelProps={{ shrink: true }} />
-          </Stack>
-          <TextField select label="Assigned vehicle" value={f.vehicleId} onChange={set('vehicleId')}>
-            <MenuItem value="">— none —</MenuItem>
-            {vehicles.map((v) => (
-              <MenuItem key={v.vehicleId} value={String(v.vehicleId)}>
-                {v.code} · {v.registrationNumber}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField select label="Salary type" value={f.salaryType} onChange={set('salaryType')}>
-            <MenuItem value="FIXED">Fixed monthly</MenuItem>
-            <MenuItem value="PER_DAY">Per day</MenuItem>
-            <MenuItem value="CUSTOM">Custom</MenuItem>
-          </TextField>
-          {f.salaryType === 'PER_DAY' ? (
-            <TextField label="Per-day rate" type="number" value={f.perDayRate} onChange={set('perDayRate')} inputProps={{ inputMode: 'decimal', min: '0' }} />
-          ) : (
-            <TextField label="Monthly salary" type="number" value={f.monthlySalary} onChange={set('monthlySalary')} inputProps={{ inputMode: 'decimal', min: '0' }} />
-          )}
-          {editing && (
-            <TextField select label="Status" value={f.status} onChange={set('status')}>
-              <MenuItem value="ACTIVE">Active</MenuItem>
-              <MenuItem value="INACTIVE">Inactive</MenuItem>
+      <DialogContent dividers>
+        <Stack spacing={3}>
+          <FormSection title="Basic Information">
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField fullWidth label="Driver Name" value={f.name} onChange={set('name')} error={!!showErr('name')} helperText={showErr('name')} required />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="Mobile"
+                  value={f.mobile}
+                  onChange={set('mobile', (v) => V.onlyDigits(v).slice(0, 10))}
+                  error={!!showErr('mobile')}
+                  helperText={showErr('mobile')}
+                  inputProps={{ inputMode: 'numeric', maxLength: 10 }}
+                  required
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField fullWidth label="Joining Date" type="date" value={f.joiningDate} onChange={set('joiningDate')} InputLabelProps={{ shrink: true }} required />
+              </Grid>
+              {editing && (
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField select fullWidth label="Status" value={f.status} onChange={set('status')}>
+                    <MenuItem value="ACTIVE">Active</MenuItem>
+                    <MenuItem value="INACTIVE">Inactive</MenuItem>
+                  </TextField>
+                </Grid>
+              )}
+            </Grid>
+          </FormSection>
+
+          <FormSection title="Vehicle Assignment">
+            <TextField select label="Assigned Vehicle" value={f.vehicleId} onChange={set('vehicleId')}>
+              <MenuItem value="">— none —</MenuItem>
+              {vehicles.map((v) => (
+                <MenuItem key={v.vehicleId} value={String(v.vehicleId)}>
+                  {v.code} · {v.registrationNumber}
+                </MenuItem>
+              ))}
             </TextField>
+          </FormSection>
+
+          <FormSection title="Salary Information">
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField select fullWidth label="Salary Type" value={f.salaryType} onChange={set('salaryType')}>
+                  <MenuItem value="FIXED">Fixed monthly</MenuItem>
+                  <MenuItem value="PER_DAY">Per day</MenuItem>
+                  <MenuItem value="CUSTOM">Custom</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                {f.salaryType === 'PER_DAY' ? (
+                  <TextField
+                    fullWidth
+                    label="Per-day Rate"
+                    type="number"
+                    value={f.perDayRate}
+                    onChange={set('perDayRate')}
+                    error={!!showErr('perDayRate')}
+                    helperText={showErr('perDayRate')}
+                    inputProps={{ inputMode: 'decimal', min: '0' }}
+                  />
+                ) : (
+                  <TextField
+                    fullWidth
+                    label="Monthly Salary"
+                    type="number"
+                    value={f.monthlySalary}
+                    onChange={set('monthlySalary')}
+                    error={!!showErr('monthlySalary')}
+                    helperText={showErr('monthlySalary')}
+                    inputProps={{ inputMode: 'decimal', min: '0' }}
+                    required
+                  />
+                )}
+              </Grid>
+            </Grid>
+          </FormSection>
+
+          <FormSection title="Bank Details" hint="Used to pay monthly salary by bank transfer.">
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12 }}>
+                <TextField
+                  fullWidth
+                  label="Account Holder Name"
+                  value={f.accountHolderName}
+                  onChange={set('accountHolderName')}
+                  error={!!showErr('accountHolderName')}
+                  helperText={showErr('accountHolderName')}
+                  required
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="Account Number"
+                  value={f.accountNumber}
+                  onChange={set('accountNumber', (v) => V.onlyDigits(v).slice(0, 18))}
+                  error={!!showErr('accountNumber')}
+                  helperText={
+                    showErr('accountNumber') ||
+                    (keepAccount ? `Current: ${editing?.accountNumberMasked} — leave blank to keep` : 'Digits only, 9–18 long')
+                  }
+                  inputProps={{ inputMode: 'numeric', maxLength: 18 }}
+                  required={!keepAccount}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="IFSC Code"
+                  value={f.ifscCode}
+                  onChange={set('ifscCode', (v) => V.upper(v).replace(/[^A-Z0-9]/g, '').slice(0, 11))}
+                  error={!!showErr('ifscCode')}
+                  helperText={showErr('ifscCode')}
+                  inputProps={{ maxLength: 11, style: { textTransform: 'uppercase' } }}
+                  required
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="Bank Name"
+                  value={f.bankName}
+                  onChange={set('bankName')}
+                  error={!!showErr('bankName')}
+                  helperText={showErr('bankName')}
+                  required
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField fullWidth label="Branch" value={f.branchName} onChange={set('branchName')} />
+              </Grid>
+            </Grid>
+          </FormSection>
+
+          {tried && !valid && (
+            <Typography variant="caption" color="error">
+              Please fix the highlighted fields.
+            </Typography>
           )}
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button
-          variant="contained"
-          disabled={busy || !valid}
-          onClick={() =>
-            onSave(editing?.id, {
-              name: f.name.trim(),
-              mobile: f.mobile.trim() || undefined,
-              joiningDate: f.joiningDate || undefined,
-              vehicleId: f.vehicleId ? Number(f.vehicleId) : undefined,
-              salaryType: f.salaryType,
-              monthlySalary: f.salaryType === 'PER_DAY' ? 0 : Number(f.monthlySalary || 0),
-              perDayRate: f.salaryType === 'PER_DAY' ? Number(f.perDayRate || 0) : undefined,
-              status: editing ? f.status : undefined,
-            })
-          }
-        >
+        <Button variant="contained" disabled={busy} onClick={submit}>
           {busy ? 'Saving…' : editing ? 'Save changes' : 'Add driver'}
         </Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+function BankViewDialog({ driver, onClose }: { driver: Driver | null; onClose: () => void }) {
+  const [reveal, setReveal] = useState(false);
+  useEffect(() => setReveal(false), [driver]);
+  const full = useQuery({
+    queryKey: ['driver-bank', driver?.id],
+    queryFn: async () => (await api.get<DriverBankDetails>(`/drivers/${driver!.id}/bank-details`)).data,
+    enabled: !!driver && reveal,
+  });
+  return (
+    <Dialog open={!!driver} onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle>Bank details — {driver?.name}</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={1.25}>
+          <Line label="Account holder" value={driver?.accountHolderName ?? '—'} />
+          <Line
+            label="Account number"
+            value={reveal ? full.data?.accountNumber ?? 'Loading…' : driver?.accountNumberMasked ?? '—'}
+          />
+          <Line label="IFSC" value={driver?.ifscCode ?? '—'} />
+          <Line label="Bank" value={driver?.bankName ?? '—'} />
+          <Line label="Branch" value={driver?.branchName ?? '—'} />
+          {driver?.bankUpdatedAt && (
+            <Line label="Last updated" value={new Date(driver.bankUpdatedAt).toLocaleString()} />
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setReveal((r) => !r)}>{reveal ? 'Hide full number' : 'Show full number'}</Button>
+        <Box sx={{ flex: 1 }} />
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function Line({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <Stack direction="row" justifyContent="space-between" spacing={2}>
+      <Typography variant="body2" color="text.secondary">
+        {label}
+      </Typography>
+      <Typography variant="body2" sx={{ fontWeight: 600, textAlign: 'right' }}>
+        {value}
+      </Typography>
+    </Stack>
   );
 }

@@ -10,6 +10,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 
 /** A vehicle driver on the payroll. Salary is paid monthly via a salary batch. */
@@ -52,4 +53,49 @@ public class Driver extends AuditableEntity {
     private Status status = Status.ACTIVE;
 
     private String note;
+
+    // ---- bank details (payout information for monthly salary) ----
+
+    @Column(name = "account_holder_name")
+    private String accountHolderName;
+
+    /** AES-GCM encrypted account number — never returned to clients. */
+    @Column(name = "account_number_enc")
+    private String accountNumberEnc;
+
+    @Column(name = "account_number_last4")
+    private String accountNumberLast4;
+
+    @Column(name = "account_number_hash")
+    private String accountNumberHash;
+
+    @Column(name = "ifsc_code")
+    private String ifscCode;
+
+    @Column(name = "bank_name")
+    private String bankName;
+
+    @Column(name = "branch_name")
+    private String branchName;
+
+    @Column(name = "bank_updated_at")
+    private Instant bankUpdatedAt;
+
+    @Column(name = "bank_updated_by")
+    private Long bankUpdatedBy;
+
+    /** True when every field required for a BANK_TRANSFER payout is present. */
+    public boolean isBankComplete() {
+        return notBlank(accountHolderName) && notBlank(accountNumberEnc)
+                && notBlank(ifscCode) && notBlank(bankName);
+    }
+
+    public String maskedAccount() {
+        return accountNumberLast4 == null || accountNumberLast4.isBlank()
+                ? null : "********" + accountNumberLast4;
+    }
+
+    private static boolean notBlank(String s) {
+        return s != null && !s.isBlank();
+    }
 }

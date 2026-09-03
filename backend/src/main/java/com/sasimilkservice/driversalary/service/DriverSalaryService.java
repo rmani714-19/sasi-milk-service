@@ -240,6 +240,14 @@ public class DriverSalaryService {
             throw new BusinessRuleException("Salary line is " + it.getPaymentStatus() + " — cannot pay now");
         }
         PaymentMethod m = method == null ? PaymentMethod.BANK_TRANSFER : method;
+        if (m == PaymentMethod.BANK_TRANSFER) {
+            Driver driver = drivers.findById(it.getDriverId())
+                    .orElseThrow(() -> NotFoundException.of("Driver", it.getDriverId()));
+            if (!driver.isBankComplete()) {
+                throw new BusinessRuleException(
+                        "Bank details are incomplete. Update the driver's bank details before processing salary.");
+            }
+        }
         String ref = reference == null ? "" : reference.trim();
         if (ref.isEmpty()) {
             if (m == PaymentMethod.CASH) {

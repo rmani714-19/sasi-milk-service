@@ -185,6 +185,23 @@ export interface Driver {
   perDayRate?: number;
   status: string;
   note?: string;
+  accountHolderName?: string;
+  accountNumberMasked?: string;
+  ifscCode?: string;
+  bankName?: string;
+  branchName?: string;
+  bankComplete: boolean;
+  bankUpdatedAt?: string;
+}
+
+export interface DriverBankDetails {
+  accountHolderName: string;
+  accountNumber: string;
+  ifscCode: string;
+  bankName: string;
+  branchName?: string;
+  bankUpdatedAt?: string;
+  bankUpdatedBy?: number;
 }
 
 export interface SalaryItem {
