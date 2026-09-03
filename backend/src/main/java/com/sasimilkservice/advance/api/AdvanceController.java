@@ -9,8 +9,11 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -52,6 +55,29 @@ public class AdvanceController {
     public AdvanceAccountResponse create(@Valid @RequestBody CreateAdvanceRequest r) {
         return AdvanceAccountResponse.from(service.create(r.producerId(), r.amount(), r.recoveryMode(),
                 r.recoveryAmount(), r.recoveryPercentage(), r.advanceDate(), r.description()));
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('MANAGE_ADVANCES')")
+    public AdvanceAccountResponse update(@PathVariable long id, @Valid @RequestBody UpdateAdvanceRequest r) {
+        return AdvanceAccountResponse.from(service.update(id, r.amount(), r.recoveryMode(),
+                r.recoveryAmount(), r.recoveryPercentage(), r.advanceDate(), r.description()));
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAuthority('MANAGE_ADVANCES')")
+    public void delete(@PathVariable long id) {
+        service.delete(id);
+    }
+
+    public record UpdateAdvanceRequest(
+            BigDecimal amount,
+            @NotNull AdvanceAccount.RecoveryMode recoveryMode,
+            BigDecimal recoveryAmount,
+            BigDecimal recoveryPercentage,
+            LocalDate advanceDate,
+            String description) {
     }
 
     public record CreateAdvanceRequest(

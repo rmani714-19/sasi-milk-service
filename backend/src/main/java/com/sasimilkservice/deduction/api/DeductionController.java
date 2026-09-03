@@ -10,9 +10,11 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -59,6 +61,26 @@ public class DeductionController {
     @PreAuthorize("hasAuthority('MANAGE_DEDUCTIONS')")
     public void cancel(@PathVariable long id) {
         service.cancel(id);
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('MANAGE_DEDUCTIONS')")
+    public DeductionResponse update(@PathVariable long id, @Valid @RequestBody UpdateDeductionRequest r) {
+        return DeductionResponse.from(service.update(id, r.typeCode(), r.amount(), r.txnDate(), r.description()));
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAuthority('MANAGE_DEDUCTIONS')")
+    public void delete(@PathVariable long id) {
+        service.delete(id);
+    }
+
+    public record UpdateDeductionRequest(
+            @NotBlank String typeCode,
+            @NotNull @DecimalMin("0.0") BigDecimal amount,
+            LocalDate txnDate,
+            String description) {
     }
 
     public record CreateDeductionRequest(

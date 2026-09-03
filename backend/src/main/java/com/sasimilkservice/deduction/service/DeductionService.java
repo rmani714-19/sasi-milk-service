@@ -81,7 +81,42 @@ public class DeductionService implements DeductionLedger {
             throw new BusinessRuleException("An applied deduction cannot be cancelled; reverse the settlement");
         }
         d.setStatus(DeductionTransaction.Status.CANCELLED);
-        audit.record("DEDUCTION_CREATED", "DeductionTransaction", id, "Deduction cancelled");
+        audit.record("DEDUCTION_UPDATED", "DeductionTransaction", id, "Deduction cancelled");
+    }
+
+    @Transactional
+    public DeductionTransaction update(long id, String typeCode, BigDecimal amount,
+                                       LocalDate txnDate, String description) {
+        DeductionTransaction d = transactions.findById(id)
+                .orElseThrow(() -> NotFoundException.of("DeductionTransaction", id));
+        if (d.getStatus() != DeductionTransaction.Status.PENDING) {
+            throw new BusinessRuleException("Only a pending deduction can be edited");
+        }
+        if (amount == null || amount.signum() < 0) {
+            throw new BusinessRuleException("Deduction amount must be zero or positive");
+        }
+        DeductionType type = types.findByCode(typeCode.toUpperCase())
+                .orElseThrow(() -> new NotFoundException("Deduction type '" + typeCode + "' not found"));
+
+        d.setDeductionTypeId(type.getId());
+        d.setAmount(amount);
+        d.setTxnDate(txnDate == null ? d.getTxnDate() : txnDate);
+        d.setDescription(description);
+        audit.record("DEDUCTION_UPDATED", "DeductionTransaction", id,
+                "%s %s for producer %d".formatted(type.getCode(), amount, d.getProducerId()));
+        return d;
+    }
+
+    @Transactional
+    public void delete(long id) {
+        DeductionTransaction d = transactions.findById(id)
+                .orElseThrow(() -> NotFoundException.of("DeductionTransaction", id));
+        if (d.getStatus() != DeductionTransaction.Status.PENDING) {
+            throw new BusinessRuleException("Only a pending deduction can be deleted");
+        }
+        audit.record("DEDUCTION_DELETED", "DeductionTransaction", id,
+                "Deduction of %s for producer %d deleted".formatted(d.getAmount(), d.getProducerId()));
+        transactions.delete(d);
     }
 
     // ---- DeductionLedger (used by the settlement engine) ----

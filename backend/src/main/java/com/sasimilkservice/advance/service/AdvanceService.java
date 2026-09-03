@@ -116,6 +116,76 @@ public class AdvanceService implements AdvanceLedger {
         return acc;
     }
 
+    @Transactional
+    public AdvanceAccount update(long id, BigDecimal amount, AdvanceAccount.RecoveryMode mode,
+                                 BigDecimal recoveryAmount, BigDecimal recoveryPercentage,
+                                 LocalDate advanceDate, String description) {
+        AdvanceAccount acc = accounts.findById(id)
+                .orElseThrow(() -> NotFoundException.of("AdvanceAccount", id));
+        if (acc.getStatus() != AdvanceAccount.Status.ACTIVE) {
+            throw new BusinessRuleException("Only an active advance can be edited");
+        }
+        boolean untouched = acc.getOutstandingAmount().compareTo(acc.getOriginalAmount()) == 0
+                && transactions.findByAdvanceAccountId(id).stream()
+                        .noneMatch(t -> t.getTxnType() != AdvanceTransaction.Type.DISBURSEMENT);
+
+        if (amount != null && amount.signum() > 0
+                && amount.compareTo(acc.getOriginalAmount()) != 0) {
+            if (!untouched) {
+                throw new BusinessRuleException(
+                        "The advance amount cannot be changed once recovery has started");
+            }
+            acc.setOriginalAmount(MoneyMath.money(amount));
+            acc.setOutstandingAmount(MoneyMath.money(amount));
+            transactions.findByAdvanceAccountId(id).stream()
+                    .filter(t -> t.getTxnType() == AdvanceTransaction.Type.DISBURSEMENT)
+                    .forEach(t -> {
+                        t.setAmount(acc.getOriginalAmount());
+                        t.setBalanceAfter(acc.getOutstandingAmount());
+                    });
+        }
+
+        if (mode == AdvanceAccount.RecoveryMode.FIXED_PER_WEEK
+                && (recoveryAmount == null || recoveryAmount.signum() <= 0)) {
+            throw new BusinessRuleException("FIXED_PER_WEEK requires a positive recoveryAmount");
+        }
+        if (mode == AdvanceAccount.RecoveryMode.PERCENTAGE_OF_NET
+                && (recoveryPercentage == null || recoveryPercentage.signum() <= 0
+                    || recoveryPercentage.compareTo(new BigDecimal("100")) > 0)) {
+            throw new BusinessRuleException("PERCENTAGE_OF_NET requires recoveryPercentage in (0, 100]");
+        }
+        acc.setRecoveryMode(mode);
+        acc.setRecoveryAmount(mode == AdvanceAccount.RecoveryMode.FIXED_PER_WEEK
+                ? MoneyMath.money(recoveryAmount) : null);
+        acc.setRecoveryPercentage(mode == AdvanceAccount.RecoveryMode.PERCENTAGE_OF_NET
+                ? recoveryPercentage : null);
+        if (advanceDate != null) {
+            acc.setAdvanceDate(advanceDate);
+        }
+        acc.setDescription(description);
+        audit.record("ADVANCE_UPDATED", "AdvanceAccount", id,
+                "Advance updated for producer %d".formatted(acc.getProducerId()));
+        return acc;
+    }
+
+    @Transactional
+    public void delete(long id) {
+        AdvanceAccount acc = accounts.findById(id)
+                .orElseThrow(() -> NotFoundException.of("AdvanceAccount", id));
+        List<AdvanceTransaction> txns = transactions.findByAdvanceAccountId(id);
+        boolean onlyDisbursement = txns.stream()
+                .allMatch(t -> t.getTxnType() == AdvanceTransaction.Type.DISBURSEMENT);
+        if (acc.getStatus() != AdvanceAccount.Status.ACTIVE || !onlyDisbursement
+                || acc.getOutstandingAmount().compareTo(acc.getOriginalAmount()) != 0) {
+            throw new BusinessRuleException(
+                    "An advance can only be deleted before any recovery has been applied");
+        }
+        audit.record("ADVANCE_DELETED", "AdvanceAccount", id,
+                "Advance of %s for producer %d deleted".formatted(acc.getOriginalAmount(), acc.getProducerId()));
+        transactions.deleteAll(txns);
+        accounts.delete(acc);
+    }
+
     // ---- AdvanceLedger ----
 
     @Override

@@ -11,6 +11,8 @@ public interface AdvanceTransactionRepository extends JpaRepository<AdvanceTrans
 
     List<AdvanceTransaction> findAllByOrderByIdDesc();
 
+    List<AdvanceTransaction> findByAdvanceAccountId(Long advanceAccountId);
+
     List<AdvanceTransaction> findBySettlementItemIdAndTxnType(Long settlementItemId,
                                                              AdvanceTransaction.Type txnType);
 }

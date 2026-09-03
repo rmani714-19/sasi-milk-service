@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
@@ -25,7 +25,7 @@ import { money, today } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
 import { ProducerPicker } from '../components/ProducerPicker';
 import { StatusChip } from '../components/StatusChip';
-import { EmptyState, QueryBoundary, TableSkeleton, useToast } from '../components/ui';
+import { ConfirmDialog, EmptyState, QueryBoundary, TableSkeleton, useToast } from '../components/ui';
 import type { Producer } from '../api/types';
 
 interface AdvanceAccount {
@@ -49,7 +49,8 @@ export function AdvancesPage() {
   const qc = useQueryClient();
   const producers = useProducerLookup();
   const [filterProducer, setFilterProducer] = useState<Producer | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
+  const [dialog, setDialog] = useState<{ mode: 'add' } | { mode: 'edit'; row: AdvanceAccount } | null>(null);
+  const [deleting, setDeleting] = useState<AdvanceAccount | null>(null);
 
   const data = useQuery({
     queryKey: ['advances', filterProducer?.id ?? 'all'],
@@ -57,15 +58,38 @@ export function AdvancesPage() {
       (await api.get<ProducerAdvances>('/advances', { params: filterProducer ? { producerId: filterProducer.id } : {} })).data,
   });
 
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['advances'] });
+
   const create = useMutation({
     mutationFn: async (body: Record<string, unknown>) => (await api.post('/advances', body)).data,
     onSuccess: () => {
       toast.success('Advance created');
-      qc.invalidateQueries({ queryKey: ['advances'] });
-      setAddOpen(false);
+      invalidate();
+      setDialog(null);
     },
     onError: toast.fromError,
   });
+  const update = useMutation({
+    mutationFn: async ({ id, body }: { id: number; body: Record<string, unknown> }) =>
+      (await api.put(`/advances/${id}`, body)).data,
+    onSuccess: () => {
+      toast.success('Advance updated');
+      invalidate();
+      setDialog(null);
+    },
+    onError: toast.fromError,
+  });
+  const del = useMutation({
+    mutationFn: async (id: number) => (await api.delete(`/advances/${id}`)).data,
+    onSuccess: () => {
+      toast.success('Advance deleted');
+      invalidate();
+      setDeleting(null);
+    },
+    onError: toast.fromError,
+  });
+
+  const untouched = (a: AdvanceAccount) => a.status === 'ACTIVE' && a.outstandingAmount === a.originalAmount;
 
   return (
     <>
@@ -73,7 +97,7 @@ export function AdvancesPage() {
         title="Advances"
         subtitle="Weekly recovery is applied automatically at settlement, oldest advance first"
         action={
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialog({ mode: 'add' })}>
             Create advance
           </Button>
         }
@@ -104,7 +128,7 @@ export function AdvancesPage() {
       <Card>
         <QueryBoundary
           query={data}
-          skeleton={<TableSkeleton cols={6} />}
+          skeleton={<TableSkeleton cols={7} />}
           empty={(d) => d.accounts.length === 0}
           emptyState={
             <EmptyState
@@ -124,6 +148,7 @@ export function AdvancesPage() {
                     <TableCell>Recovery</TableCell>
                     <TableCell align="right">Outstanding</TableCell>
                     <TableCell>Status</TableCell>
+                    <TableCell align="right">Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -141,6 +166,28 @@ export function AdvancesPage() {
                       <TableCell>
                         <StatusChip status={a.status} />
                       </TableCell>
+                      <TableCell align="right">
+                        {a.status === 'ACTIVE' ? (
+                          <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                            <Button size="small" onClick={() => setDialog({ mode: 'edit', row: a })}>
+                              Edit
+                            </Button>
+                            <Button
+                              size="small"
+                              color="error"
+                              disabled={!untouched(a)}
+                              title={untouched(a) ? '' : 'Recovery has started — cannot delete'}
+                              onClick={() => setDeleting(a)}
+                            >
+                              Delete
+                            </Button>
+                          </Stack>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">
+                            —
+                          </Typography>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -150,30 +197,58 @@ export function AdvancesPage() {
         </QueryBoundary>
       </Card>
 
-      <CreateAdvanceDialog
-        open={addOpen}
+      <AdvanceDialog
+        key={dialog?.mode === 'edit' ? `edit-${dialog.row.id}` : 'add'}
+        state={dialog}
         defaultProducer={filterProducer}
-        busy={create.isPending}
-        onClose={() => setAddOpen(false)}
-        onSubmit={(body) => create.mutate(body)}
+        producerLabel={dialog?.mode === 'edit' ? producers.label(dialog.row.producerId) : ''}
+        principalLocked={dialog?.mode === 'edit' ? !untouched(dialog.row) : false}
+        busy={create.isPending || update.isPending}
+        onClose={() => setDialog(null)}
+        onCreate={(body) => create.mutate(body)}
+        onUpdate={(id, body) => update.mutate({ id, body })}
+      />
+
+      <ConfirmDialog
+        open={!!deleting}
+        title="Delete this advance?"
+        message={
+          deleting
+            ? `${money(deleting.originalAmount)} advance for ${producers.label(deleting.producerId)} will be removed. Only possible before any recovery.`
+            : ''
+        }
+        confirmLabel="Delete"
+        destructive
+        busy={del.isPending}
+        onConfirm={() => deleting && del.mutate(deleting.id)}
+        onClose={() => setDeleting(null)}
       />
     </>
   );
 }
 
-function CreateAdvanceDialog({
-  open,
+type DialogState = { mode: 'add' } | { mode: 'edit'; row: AdvanceAccount } | null;
+
+function AdvanceDialog({
+  state,
   defaultProducer,
+  producerLabel,
+  principalLocked,
   busy,
   onClose,
-  onSubmit,
+  onCreate,
+  onUpdate,
 }: {
-  open: boolean;
+  state: DialogState;
   defaultProducer: Producer | null;
+  producerLabel: string;
+  principalLocked: boolean;
   busy: boolean;
   onClose: () => void;
-  onSubmit: (body: Record<string, unknown>) => void;
+  onCreate: (body: Record<string, unknown>) => void;
+  onUpdate: (id: number, body: Record<string, unknown>) => void;
 }) {
+  const editing = state?.mode === 'edit' ? state.row : null;
   const [producer, setProducer] = useState<Producer | null>(defaultProducer);
   const [f, setF] = useState({
     amount: '',
@@ -184,29 +259,57 @@ function CreateAdvanceDialog({
   });
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
 
-  const valid =
-    !!producer &&
-    Number(f.amount) > 0 &&
-    (f.recoveryMode === 'FIXED_PER_WEEK' ? Number(f.recoveryAmount) > 0 : Number(f.recoveryPercentage) > 0);
+  useEffect(() => {
+    if (editing) {
+      setF({
+        amount: String(editing.originalAmount),
+        recoveryMode: editing.recoveryMode,
+        recoveryAmount: editing.recoveryAmount != null ? String(editing.recoveryAmount) : '',
+        recoveryPercentage: editing.recoveryPercentage != null ? String(editing.recoveryPercentage) : '',
+        advanceDate: editing.advanceDate,
+      });
+    } else {
+      setProducer(defaultProducer);
+      setF({ amount: '', recoveryMode: 'FIXED_PER_WEEK', recoveryAmount: '', recoveryPercentage: '', advanceDate: today() });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  const recoveryOk =
+    f.recoveryMode === 'FIXED_PER_WEEK' ? Number(f.recoveryAmount) > 0 : Number(f.recoveryPercentage) > 0;
+  const valid = (editing || !!producer) && Number(f.amount) > 0 && recoveryOk;
+
+  const submit = () => {
+    const body = {
+      amount: Number(f.amount),
+      recoveryMode: f.recoveryMode,
+      recoveryAmount: f.recoveryMode === 'FIXED_PER_WEEK' ? Number(f.recoveryAmount) : undefined,
+      recoveryPercentage: f.recoveryMode === 'PERCENTAGE_OF_NET' ? Number(f.recoveryPercentage) : undefined,
+      advanceDate: f.advanceDate,
+    };
+    if (editing) onUpdate(editing.id, body);
+    else onCreate({ producerId: producer!.id, ...body });
+  };
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      fullWidth
-      maxWidth="xs"
-      TransitionProps={{
-        onEnter: () => {
-          setProducer(defaultProducer);
-          setF({ amount: '', recoveryMode: 'FIXED_PER_WEEK', recoveryAmount: '', recoveryPercentage: '', advanceDate: today() });
-        },
-      }}
-    >
-      <DialogTitle>Create advance</DialogTitle>
+    <Dialog open={!!state} onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle>{editing ? 'Edit advance' : 'Create advance'}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
-          <ProducerPicker value={producer} onChange={setProducer} />
-          <TextField label="Advance amount" type="number" value={f.amount} onChange={set('amount')} inputProps={{ inputMode: 'decimal', min: '0' }} />
+          {editing ? (
+            <TextField label="Producer" value={producerLabel} disabled />
+          ) : (
+            <ProducerPicker value={producer} onChange={setProducer} />
+          )}
+          <TextField
+            label="Advance amount"
+            type="number"
+            value={f.amount}
+            onChange={set('amount')}
+            disabled={principalLocked}
+            helperText={principalLocked ? 'Recovery has started — amount is locked' : undefined}
+            inputProps={{ inputMode: 'decimal', min: '0' }}
+          />
           <TextField select label="Recovery" value={f.recoveryMode} onChange={set('recoveryMode')}>
             <MenuItem value="FIXED_PER_WEEK">Fixed / week</MenuItem>
             <MenuItem value="PERCENTAGE_OF_NET">% of net</MenuItem>
@@ -221,21 +324,8 @@ function CreateAdvanceDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button
-          variant="contained"
-          disabled={busy || !valid}
-          onClick={() =>
-            onSubmit({
-              producerId: producer!.id,
-              amount: Number(f.amount),
-              recoveryMode: f.recoveryMode,
-              recoveryAmount: f.recoveryMode === 'FIXED_PER_WEEK' ? Number(f.recoveryAmount) : undefined,
-              recoveryPercentage: f.recoveryMode === 'PERCENTAGE_OF_NET' ? Number(f.recoveryPercentage) : undefined,
-              advanceDate: f.advanceDate,
-            })
-          }
-        >
-          {busy ? 'Saving…' : 'Create advance'}
+        <Button variant="contained" disabled={busy || !valid} onClick={submit}>
+          {busy ? 'Saving…' : editing ? 'Save changes' : 'Create advance'}
         </Button>
       </DialogActions>
     </Dialog>
