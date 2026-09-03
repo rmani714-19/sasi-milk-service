@@ -41,8 +41,9 @@ public class DeductionController {
 
     @GetMapping
     @PreAuthorize("hasAnyAuthority('MANAGE_DEDUCTIONS','VIEW_DASHBOARD')")
-    public List<DeductionResponse> list(@RequestParam long producerId) {
-        return service.listForProducer(producerId).stream().map(DeductionResponse::from).toList();
+    public List<DeductionResponse> list(@RequestParam(required = false) Long producerId) {
+        var rows = producerId == null ? service.listAll() : service.listForProducer(producerId);
+        return rows.stream().map(DeductionResponse::from).toList();
     }
 
     @PostMapping

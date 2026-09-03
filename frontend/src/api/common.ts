@@ -1,6 +1,7 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import type { Region } from './types';
+import type { Page, Producer, Region } from './types';
 
 export function useRegions() {
   return useQuery({
@@ -8,6 +9,26 @@ export function useRegions() {
     queryFn: async () => (await api.get<Region[]>('/regions')).data,
     staleTime: 5 * 60_000,
   });
+}
+
+/** id → Producer map for pages that list rows keyed only by producerId. */
+export function useProducerLookup() {
+  const q = useQuery({
+    queryKey: ['producers', 'lookup'],
+    queryFn: async () =>
+      (await api.get<Page<Producer>>('/producers', { params: { size: 500 } })).data.content,
+    staleTime: 5 * 60_000,
+  });
+  const byId = useMemo(() => {
+    const m = new Map<number, Producer>();
+    (q.data ?? []).forEach((p) => m.set(p.id, p));
+    return m;
+  }, [q.data]);
+  const label = (id: number) => {
+    const p = byId.get(id);
+    return p ? `${p.producerNumber} · ${p.producerName}` : `#${id}`;
+  };
+  return { byId, label, isLoading: q.isLoading };
 }
 
 /** Fetch a file (report export etc.) with auth and trigger a browser download. */

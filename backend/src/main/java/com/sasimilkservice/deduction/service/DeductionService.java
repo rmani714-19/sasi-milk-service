@@ -48,6 +48,10 @@ public class DeductionService implements DeductionLedger {
         return transactions.findByProducerIdOrderByTxnDateDescIdDesc(producerId);
     }
 
+    public List<DeductionTransaction> listAll() {
+        return transactions.findAllByOrderByTxnDateDescIdDesc();
+    }
+
     @Transactional
     public DeductionTransaction create(long producerId, String typeCode, BigDecimal amount,
                                        LocalDate txnDate, String description) {

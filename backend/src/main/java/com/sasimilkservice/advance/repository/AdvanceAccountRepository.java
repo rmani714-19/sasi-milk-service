@@ -9,6 +9,10 @@ public interface AdvanceAccountRepository extends JpaRepository<AdvanceAccount, 
 
     List<AdvanceAccount> findByProducerIdOrderByAdvanceDateAscIdAsc(Long producerId);
 
+    List<AdvanceAccount> findAllByOrderByAdvanceDateAscIdAsc();
+
+    List<AdvanceAccount> findByStatus(AdvanceAccount.Status status);
+
     List<AdvanceAccount> findByProducerIdAndStatusOrderByAdvanceDateAscIdAsc(
             Long producerId, AdvanceAccount.Status status);
 }

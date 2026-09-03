@@ -33,7 +33,13 @@ public class AdvanceController {
 
     @GetMapping
     @PreAuthorize("hasAnyAuthority('MANAGE_ADVANCES','VIEW_DASHBOARD')")
-    public ProducerAdvancesResponse list(@RequestParam long producerId) {
+    public ProducerAdvancesResponse list(@RequestParam(required = false) Long producerId) {
+        if (producerId == null) {
+            return new ProducerAdvancesResponse(
+                    service.totalOutstandingAll(),
+                    service.listAllAccounts().stream().map(AdvanceAccountResponse::from).toList(),
+                    service.allLedger().stream().map(AdvanceTxnResponse::from).toList());
+        }
         return new ProducerAdvancesResponse(
                 service.totalOutstanding(producerId),
                 service.listForProducer(producerId).stream().map(AdvanceAccountResponse::from).toList(),

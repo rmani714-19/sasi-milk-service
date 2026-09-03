@@ -41,13 +41,27 @@ public class AdvanceService implements AdvanceLedger {
         return accounts.findByProducerIdOrderByAdvanceDateAscIdAsc(producerId);
     }
 
+    public List<AdvanceAccount> listAllAccounts() {
+        return accounts.findAllByOrderByAdvanceDateAscIdAsc();
+    }
+
     public List<AdvanceTransaction> ledgerForProducer(long producerId) {
         return transactions.findByProducerIdOrderByIdDesc(producerId);
+    }
+
+    public List<AdvanceTransaction> allLedger() {
+        return transactions.findAllByOrderByIdDesc();
     }
 
     public BigDecimal totalOutstanding(long producerId) {
         return accounts.findByProducerIdAndStatusOrderByAdvanceDateAscIdAsc(
                         producerId, AdvanceAccount.Status.ACTIVE).stream()
+                .map(AdvanceAccount::getOutstandingAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    public BigDecimal totalOutstandingAll() {
+        return accounts.findByStatus(AdvanceAccount.Status.ACTIVE).stream()
                 .map(AdvanceAccount::getOutstandingAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }

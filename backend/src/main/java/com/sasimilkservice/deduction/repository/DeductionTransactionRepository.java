@@ -13,6 +13,8 @@ public interface DeductionTransactionRepository extends JpaRepository<DeductionT
 
     List<DeductionTransaction> findByProducerIdOrderByTxnDateDescIdDesc(Long producerId);
 
+    List<DeductionTransaction> findAllByOrderByTxnDateDescIdDesc();
+
     @Query("""
             select d from DeductionTransaction d
             where d.status = :status
