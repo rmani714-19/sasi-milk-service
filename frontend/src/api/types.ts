@@ -304,3 +304,35 @@ export interface CenterSettings {
   snfMin: number;
   snfMax: number;
 }
+
+export type IncentiveTarget = 'PRODUCER' | 'MEDIATOR';
+export type IncentiveType =
+  | 'PER_LITRE'
+  | 'FIXED_AMOUNT'
+  | 'VOLUME_BONUS'
+  | 'DAILY_BONUS'
+  | 'WEEKLY_BONUS'
+  | 'MONTHLY_BONUS'
+  | 'RETENTION_BONUS'
+  | 'NEW_PRODUCER_BONUS'
+  | 'COMPETITOR_RETENTION';
+
+export interface Incentive {
+  id: number;
+  publicId: string;
+  name: string;
+  target: IncentiveTarget;
+  incentiveType: IncentiveType;
+  amount: number;
+  effectiveFrom: string;
+  effectiveTo: string;
+  status: 'ACTIVE' | 'INACTIVE';
+  effectiveStatus: 'ACTIVE' | 'INACTIVE' | 'EXPIRED';
+  description?: string;
+  priority: number;
+  used: boolean;
+  createdBy?: number;
+  createdByName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
