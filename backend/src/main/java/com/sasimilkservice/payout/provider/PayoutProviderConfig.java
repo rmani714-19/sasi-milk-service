@@ -1,6 +1,7 @@
 package com.sasimilkservice.payout.provider;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,6 +19,8 @@ import java.util.UUID;
 public class PayoutProviderConfig {
 
     @Bean
+    @ConditionalOnProperty(prefix = "sasi.payout.razorpayx", name = "enabled", havingValue = "false",
+            matchIfMissing = true)
     @ConditionalOnMissingBean(PayoutProvider.class)
     PayoutProvider manualPayoutProvider() {
         return new PayoutProvider() {
@@ -41,8 +44,8 @@ public class PayoutProviderConfig {
 
             @Override
             public WebhookResult parseWebhook(String rawBody, Map<String, String> headers) {
-                return new WebhookResult(false, null, null, ProviderStatus.PROCESSING,
-                        null, null, "manual provider has no webhook");
+                return new WebhookResult(null, false, null, null, ProviderStatus.PROCESSING,
+                        null, null, "manual provider has no webhook", null);
             }
         };
     }

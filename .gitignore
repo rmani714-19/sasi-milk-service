@@ -25,6 +25,8 @@ Thumbs.db
 .env
 .env.local
 application-local-*.yml
+application-local.yml
+!application-local.yml.example
 
 # Node / frontend
 node_modules/

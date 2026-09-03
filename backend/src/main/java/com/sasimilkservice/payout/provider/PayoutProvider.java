@@ -2,6 +2,7 @@ package com.sasimilkservice.payout.provider;
 
 import java.math.BigDecimal;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Abstraction over a payout/disbursement provider (RazorpayX, bank file, manual…).
@@ -22,7 +23,15 @@ public interface PayoutProvider {
     /** Parse + signature-verify an inbound webhook body. */
     WebhookResult parseWebhook(String rawBody, Map<String, String> headers);
 
-    enum ProviderStatus { PENDING, PROCESSING, SUCCESS, FAILED }
+    /** Owner account balance, when the provider exposes it. Empty = not supported / unavailable. */
+    default Optional<ProviderBalance> getBalance() {
+        return Optional.empty();
+    }
+
+    enum ProviderStatus { PENDING, PROCESSING, SUCCESS, FAILED, REVERSED }
+
+    record ProviderBalance(BigDecimal available, String currency) {
+    }
 
     record CreateCommand(
             String idempotencyKey,
@@ -43,12 +52,14 @@ public interface PayoutProvider {
     }
 
     record WebhookResult(
+            String eventId,
             boolean signatureValid,
             String providerPayoutId,
             String providerRef,
             ProviderStatus status,
             String utr,
             String failureCode,
-            String failureReason) {
+            String failureReason,
+            String eventType) {
     }
 }

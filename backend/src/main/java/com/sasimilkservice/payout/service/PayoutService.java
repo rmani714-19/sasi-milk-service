@@ -7,12 +7,14 @@ import com.sasimilkservice.common.money.MoneyMath;
 import com.sasimilkservice.notification.spi.NotificationPublisher;
 import com.sasimilkservice.notification.spi.NotificationPublisher.NotificationRequest;
 import com.sasimilkservice.payout.domain.Payout;
+import com.sasimilkservice.payout.domain.PaymentWebhookEvent;
 import com.sasimilkservice.payout.domain.PayoutTransaction;
 import com.sasimilkservice.payout.provider.PayoutProvider;
 import com.sasimilkservice.payout.provider.PayoutProvider.CreateCommand;
 import com.sasimilkservice.payout.provider.PayoutProvider.CreateResult;
 import com.sasimilkservice.payout.provider.PayoutProvider.ProviderStatus;
 import com.sasimilkservice.payout.provider.PayoutProvider.WebhookResult;
+import com.sasimilkservice.payout.repository.PaymentWebhookEventRepository;
 import com.sasimilkservice.payout.repository.PayoutRepository;
 import com.sasimilkservice.payout.repository.PayoutTransactionRepository;
 import com.sasimilkservice.producer.spi.BankAccountResolver;
@@ -43,6 +45,7 @@ public class PayoutService {
 
     private final PayoutRepository payouts;
     private final PayoutTransactionRepository payoutTxns;
+    private final PaymentWebhookEventRepository webhookEvents;
     private final PayoutProvider provider;
     private final SettlementPayoutGateway settlements;
     private final BankAccountResolver bankAccounts;
@@ -51,6 +54,7 @@ public class PayoutService {
 
     public PayoutService(PayoutRepository payouts,
                          PayoutTransactionRepository payoutTxns,
+                         PaymentWebhookEventRepository webhookEvents,
                          PayoutProvider provider,
                          SettlementPayoutGateway settlements,
                          BankAccountResolver bankAccounts,
@@ -58,11 +62,21 @@ public class PayoutService {
                          AuditRecorder audit) {
         this.payouts = payouts;
         this.payoutTxns = payoutTxns;
+        this.webhookEvents = webhookEvents;
         this.provider = provider;
         this.settlements = settlements;
         this.bankAccounts = bankAccounts;
         this.notifications = notifications;
         this.audit = audit;
+    }
+
+    /** Provider account balance when the active provider exposes it (RazorpayX manual otherwise). */
+    public Optional<PayoutProvider.ProviderBalance> providerBalance() {
+        return provider.getBalance();
+    }
+
+    public String providerName() {
+        return provider.name();
     }
 
     public List<Payout> all() {
@@ -192,14 +206,44 @@ public class PayoutService {
     public void handleWebhook(String rawBody, Map<String, String> headers) {
         WebhookResult w = provider.parseWebhook(rawBody, headers);
         if (!w.signatureValid()) {
+            // a bad signature is never persisted or acted on
             throw new BusinessRuleException("invalid_signature", "Webhook signature verification failed");
         }
+
+        // Deduplicate on the provider's own event id BEFORE touching any payout.
+        if (w.eventId() != null && !w.eventId().isBlank()) {
+            var existing = webhookEvents.findByProviderAndEventId(provider.name(), w.eventId());
+            if (existing.isPresent()) {
+                return; // redelivered event — already recorded, do not re-apply or re-notify
+            }
+            PaymentWebhookEvent ev = new PaymentWebhookEvent();
+            ev.setProvider(provider.name());
+            ev.setEventId(w.eventId());
+            ev.setEventType(w.eventType());
+            try {
+                applyWebhook(w);
+                ev.setProcessingStatus(PaymentWebhookEvent.ProcessingStatus.PROCESSED.name());
+                ev.setProcessedAt(Instant.now());
+            } catch (RuntimeException e) {
+                ev.setProcessingStatus(PaymentWebhookEvent.ProcessingStatus.FAILED.name());
+                ev.setErrorMessage(e.getMessage());
+                webhookEvents.save(ev);
+                throw e;
+            }
+            webhookEvents.save(ev);
+            return;
+        }
+        applyWebhook(w);
+    }
+
+    private void applyWebhook(WebhookResult w) {
         Payout p = payouts.findByProviderPayoutId(w.providerPayoutId())
                 .orElseThrow(() -> new NotFoundException("Unknown payout " + w.providerPayoutId()));
 
+        // second-line dedupe: one WEBHOOK transaction per (payout, providerRef)
         if (w.providerRef() != null && payoutTxns.existsByPayoutIdAndEventTypeAndProviderRef(
                 p.getId(), PayoutTransaction.EventType.WEBHOOK, w.providerRef())) {
-            return; // already processed this webhook
+            return;
         }
         logTxn(p.getId(), PayoutTransaction.EventType.WEBHOOK, w.status().name(), w.providerRef(), null);
         applyFinalStatus(p, w.status(), w.utr(), w.failureCode(), w.failureReason());
@@ -237,6 +281,14 @@ public class PayoutService {
                 p.setFailureReason(failureReason);
                 settlements.updateItemPaymentStatus(p.getSettlementItemId(), ItemPaymentStatus.FAILED, null);
                 notifyPayment(p, "PAYMENT_FAILED", false);
+            }
+            case REVERSED -> {
+                // money that had settled has been pulled back — the line is no longer paid
+                p.setStatus(Payout.Status.REVERSED);
+                p.setFailureCode(failureCode == null ? "REVERSED" : failureCode);
+                p.setFailureReason(failureReason == null ? "Payout reversed by provider" : failureReason);
+                settlements.updateItemPaymentStatus(p.getSettlementItemId(), ItemPaymentStatus.CANCELLED, null);
+                notifyPayment(p, "PAYMENT_REVERSED", false);
             }
             default -> {
                 p.setStatus(mapStatus(status));
@@ -295,6 +347,7 @@ public class PayoutService {
             case PROCESSING -> Payout.Status.PROCESSING;
             case SUCCESS -> Payout.Status.SUCCESS;
             case FAILED -> Payout.Status.FAILED;
+            case REVERSED -> Payout.Status.REVERSED;
         };
     }
 

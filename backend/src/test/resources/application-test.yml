@@ -1,0 +1,7 @@
+# Test profile: the payout engine always uses the MANUAL provider — tests never
+# reach a real RazorpayX endpoint. RazorpayX adapter logic is covered by pure
+# unit tests (signature, status/error mapping, webhook dedupe).
+sasi:
+  payout:
+    razorpayx:
+      enabled: false

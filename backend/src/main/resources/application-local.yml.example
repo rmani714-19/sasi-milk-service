@@ -1,0 +1,22 @@
+# -----------------------------------------------------------------------------
+# Local RazorpayX (TEST mode) example.
+#
+#   cp application-local.yml.example application-local.yml
+#   ...fill in your RazorpayX *test* key/secret/account/webhook-secret...
+#   run with:  --spring.profiles.active=local
+#
+# application-local.yml is git-ignored. Never put PRODUCTION payout credentials
+# in any file under source control — supply them from the environment or a
+# secret manager.
+# -----------------------------------------------------------------------------
+sasi:
+  payout:
+    razorpayx:
+      enabled: true
+      key-id: rzp_test_xxxxxxxxxxxxxx
+      key-secret: xxxxxxxxxxxxxxxxxxxxxxxx
+      # The RazorpayX (owner) account number payouts are drawn from, e.g. 2323230012345678
+      account-number: 0000000000000000
+      # From the RazorpayX dashboard -> Settings -> Webhooks
+      webhook-secret: your_webhook_secret
+      base-url: https://api.razorpay.com/v1

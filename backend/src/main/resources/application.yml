@@ -49,6 +49,19 @@ app:
     # Provided via AWS Secrets Manager in real environments.
     field-key: ${FIELD_ENCRYPTION_KEY:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
 
+sasi:
+  payout:
+    razorpayx:
+      # Off by default -> the payout engine uses the MANUAL provider. Turn on
+      # only when all four secrets below are supplied from the environment /
+      # a secret manager. NEVER commit real values.
+      enabled: ${RAZORPAYX_ENABLED:false}
+      key-id: ${RAZORPAYX_KEY_ID:}
+      key-secret: ${RAZORPAYX_KEY_SECRET:}
+      account-number: ${RAZORPAYX_ACCOUNT_NUMBER:}
+      webhook-secret: ${RAZORPAYX_WEBHOOK_SECRET:}
+      base-url: ${RAZORPAYX_BASE_URL:https://api.razorpay.com/v1}
+
 springdoc:
   swagger-ui:
     path: /swagger-ui.html

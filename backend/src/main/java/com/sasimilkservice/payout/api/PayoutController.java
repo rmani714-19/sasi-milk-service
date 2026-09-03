@@ -72,7 +72,7 @@ public class PayoutController {
     }
 
     /** Provider webhook — authenticated by signature inside the provider adapter, not by JWT. */
-    @PostMapping("/payouts/webhook")
+    @PostMapping({"/payouts/webhook", "/payments/webhooks/razorpayx"})
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void webhook(@RequestBody(required = false) String body, HttpServletRequest request) {
         Map<String, String> headers = new HashMap<>();
@@ -82,6 +82,18 @@ public class PayoutController {
             headers.put(n.toLowerCase(), request.getHeader(n));
         }
         service.handleWebhook(body == null ? "" : body, headers);
+    }
+
+    /** Owner account balance from the payout provider, when it exposes one. */
+    @GetMapping("/payments/provider/balance")
+    @PreAuthorize("hasAnyAuthority('VIEW_PAYMENTS','VERIFY_PAYMENT','APPROVE_SETTLEMENT','PROCESS_PAYMENT')")
+    public ProviderBalanceResponse providerBalance() {
+        return service.providerBalance()
+                .map(b -> new ProviderBalanceResponse(service.providerName(), b.available(), b.currency(), true))
+                .orElse(new ProviderBalanceResponse(service.providerName(), null, "INR", false));
+    }
+
+    public record ProviderBalanceResponse(String provider, BigDecimal available, String currency, boolean supported) {
     }
 
     public record MarkPaidRequest(@NotBlank String utr) {
