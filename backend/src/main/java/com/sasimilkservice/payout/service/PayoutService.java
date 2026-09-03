@@ -65,6 +65,10 @@ public class PayoutService {
         this.audit = audit;
     }
 
+    public List<Payout> all() {
+        return payouts.findAllByOrderByIdDesc();
+    }
+
     public List<Payout> forSettlement(long settlementId) {
         return payouts.findBySettlementIdOrderByProducerIdAsc(settlementId);
     }

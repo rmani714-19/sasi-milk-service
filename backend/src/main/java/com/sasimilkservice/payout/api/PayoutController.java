@@ -42,8 +42,9 @@ public class PayoutController {
 
     @GetMapping("/payouts")
     @PreAuthorize("hasAnyAuthority('VIEW_PAYMENTS','APPROVE_SETTLEMENT')")
-    public List<PayoutResponse> list(@RequestParam long settlementId) {
-        return service.forSettlement(settlementId).stream().map(PayoutResponse::from).toList();
+    public List<PayoutResponse> list(@RequestParam(required = false) Long settlementId) {
+        var rows = settlementId == null ? service.all() : service.forSettlement(settlementId);
+        return rows.stream().map(PayoutResponse::from).toList();
     }
 
     @GetMapping("/payouts/{id}")

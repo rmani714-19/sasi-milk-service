@@ -14,6 +14,10 @@ import { DeductionsPage } from './pages/DeductionsPage';
 import { AdvancesPage } from './pages/AdvancesPage';
 import { SettlementsPage } from './pages/SettlementsPage';
 import { SettlementDetailPage } from './pages/SettlementDetailPage';
+import { FarmerPaymentsPage } from './pages/payments/FarmerPaymentsPage';
+import { DriverPaymentsPage } from './pages/payments/DriverPaymentsPage';
+import { PaymentHistoryPage } from './pages/payments/PaymentHistoryPage';
+import { PaymentReportsPage } from './pages/payments/PaymentReportsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { VehiclesPage } from './pages/VehiclesPage';
 import { NotificationsPage } from './pages/NotificationsPage';
@@ -40,6 +44,10 @@ export function App() {
           <Route path="advances" element={<AdvancesPage />} />
           <Route path="settlements" element={<SettlementsPage />} />
           <Route path="settlements/:id" element={<SettlementDetailPage />} />
+          <Route path="payments/farmers" element={<FarmerPaymentsPage />} />
+          <Route path="payments/drivers" element={<DriverPaymentsPage />} />
+          <Route path="payments/history" element={<PaymentHistoryPage />} />
+          <Route path="payments/reports" element={<PaymentReportsPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="vehicles" element={<VehiclesPage />} />
           <Route path="notifications" element={<NotificationsPage />} />

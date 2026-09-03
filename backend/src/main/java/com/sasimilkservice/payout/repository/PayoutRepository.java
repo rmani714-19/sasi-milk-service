@@ -16,4 +16,6 @@ public interface PayoutRepository extends JpaRepository<Payout, Long> {
     Optional<Payout> findByProviderPayoutId(String providerPayoutId);
 
     List<Payout> findBySettlementIdOrderByProducerIdAsc(Long settlementId);
+
+    List<Payout> findAllByOrderByIdDesc();
 }

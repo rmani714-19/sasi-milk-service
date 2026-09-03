@@ -12,6 +12,7 @@ import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
+import ListSubheader from '@mui/material/ListSubheader';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Toolbar from '@mui/material/Toolbar';
@@ -39,6 +40,9 @@ import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
 import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNoneOutlined';
+import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
+import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
+import SummarizeOutlinedIcon from '@mui/icons-material/SummarizeOutlined';
 import { useAuth } from '../lib/auth';
 import { useAppTheme } from '../lib/appTheme';
 import { usePendingSync } from '../lib/usePendingSync';
@@ -53,6 +57,7 @@ interface NavItem {
   label: string;
   icon: JSX.Element;
   perm?: string;
+  section?: string;
 }
 
 const NAV: NavItem[] = [
@@ -64,11 +69,16 @@ const NAV: NavItem[] = [
   { to: '/deductions', label: 'Deductions', icon: <ReceiptLongOutlinedIcon />, perm: 'MANAGE_DEDUCTIONS' },
   { to: '/advances', label: 'Advances', icon: <AccountBalanceWalletOutlinedIcon />, perm: 'MANAGE_ADVANCES' },
   { to: '/rates', label: 'Rate Chart', icon: <TableChartOutlinedIcon />, perm: 'MANAGE_RATES' },
-  { to: '/settlements', label: 'Settlement', icon: <PaymentsOutlinedIcon />, perm: 'GENERATE_SETTLEMENT' },
-  { to: '/reports', label: 'Reports', icon: <AssessmentOutlinedIcon />, perm: 'VIEW_REPORTS' },
-  { to: '/vehicles', label: 'Vehicles', icon: <LocalShippingOutlinedIcon />, perm: 'VIEW_DASHBOARD' },
-  { to: '/center', label: 'My Center', icon: <BusinessOutlinedIcon />, perm: 'MANAGE_RATES' },
-  { to: '/notifications', label: 'Notifications', icon: <NotificationsNoneOutlinedIcon />, perm: 'ALL' },
+
+  { section: 'Payments', to: '/payments/farmers', label: 'Farmer Payments', icon: <PaymentsOutlinedIcon />, perm: 'GENERATE_SETTLEMENT' },
+  { section: 'Payments', to: '/payments/drivers', label: 'Driver Salary', icon: <BadgeOutlinedIcon />, perm: 'VIEW_PAYMENTS' },
+  { section: 'Payments', to: '/payments/history', label: 'Payment History', icon: <HistoryOutlinedIcon />, perm: 'VIEW_PAYMENTS' },
+  { section: 'Payments', to: '/payments/reports', label: 'Payment Reports', icon: <SummarizeOutlinedIcon />, perm: 'VIEW_REPORTS' },
+
+  { section: 'Insights', to: '/reports', label: 'Reports', icon: <AssessmentOutlinedIcon />, perm: 'VIEW_REPORTS' },
+  { section: 'Insights', to: '/vehicles', label: 'Vehicles', icon: <LocalShippingOutlinedIcon />, perm: 'VIEW_DASHBOARD' },
+  { section: 'Insights', to: '/center', label: 'My Center', icon: <BusinessOutlinedIcon />, perm: 'MANAGE_RATES' },
+  { section: 'Insights', to: '/notifications', label: 'Notifications', icon: <NotificationsNoneOutlinedIcon />, perm: 'ALL' },
 ];
 
 const isActive = (to: string, pathname: string) =>
@@ -115,7 +125,9 @@ export function AppLayout() {
 
   const items = useMemo(() => NAV.filter((n) => !n.perm || can(n.perm)), [can]);
   const railWidth = collapsed ? NAV_MINI : NAV_FULL;
-  const currentLabel = items.find((n) => isActive(n.to, pathname))?.label ?? '';
+  const currentLabel =
+    items.find((n) => isActive(n.to, pathname))?.label ??
+    (pathname.startsWith('/settlements') ? 'Farmer Payments' : '');
 
   const initials = (user?.fullName ?? '?')
     .split(/\s+/)
@@ -172,10 +184,20 @@ export function AppLayout() {
       <Divider />
 
       <List sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', px: mini ? 0.75 : 1.25, py: 1.5 }}>
-        {items.map((n) => {
+        {items.map((n, i) => {
           const active = isActive(n.to, pathname);
+          const showSection = !mini && n.section && n.section !== items[i - 1]?.section;
           return (
-            <Tooltip key={n.to} title={mini ? n.label : ''} placement="right" arrow>
+            <Box key={n.to}>
+              {showSection && (
+                <ListSubheader
+                  disableSticky
+                  sx={{ bgcolor: 'transparent', lineHeight: '28px', mt: 1, px: 1.5, fontSize: '0.68rem', letterSpacing: 0.6, textTransform: 'uppercase', color: 'text.disabled' }}
+                >
+                  {n.section}
+                </ListSubheader>
+              )}
+              <Tooltip title={mini ? n.label : ''} placement="right" arrow>
               <ListItemButton
                 component={RouterLink}
                 to={n.to}
@@ -210,7 +232,8 @@ export function AppLayout() {
                   />
                 )}
               </ListItemButton>
-            </Tooltip>
+              </Tooltip>
+            </Box>
           );
         })}
       </List>

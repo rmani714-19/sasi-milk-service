@@ -152,6 +152,69 @@ export interface Payout {
   settledAt?: string;
 }
 
+export interface Driver {
+  id: number;
+  code: string;
+  name: string;
+  mobile?: string;
+  joiningDate?: string;
+  vehicleId?: number;
+  salaryType: 'FIXED' | 'PER_DAY' | 'CUSTOM';
+  monthlySalary: number;
+  perDayRate?: number;
+  status: string;
+  note?: string;
+}
+
+export interface SalaryItem {
+  id: number;
+  batchId: number;
+  driverId: number;
+  vehicleId?: number;
+  salaryType: string;
+  basicSalary: number;
+  workingDays: number;
+  allowances: number;
+  overtime: number;
+  otherEarnings: number;
+  salaryAdvance: number;
+  loanRecovery: number;
+  penalty: number;
+  otherDeduction: number;
+  grossAmount: number;
+  totalDeduction: number;
+  netSalary: number;
+  paymentStatus: string;
+  paymentMethod?: string;
+  paymentReference?: string;
+  paidAt?: string;
+  failureReason?: string;
+  note?: string;
+}
+
+export interface SalaryBatchSummary {
+  id: number;
+  batchNumber: string;
+  batchType: string;
+  periodMonth: string;
+  status: string;
+  totalDrivers: number;
+  totalGross: number;
+  totalDeductions: number;
+  totalNet: number;
+  totalPaid: number;
+  approvedAt?: string;
+}
+
+export interface SalaryBatchDetail extends SalaryBatchSummary {
+  totalAllowances: number;
+  totalOvertime: number;
+  calculatedAt?: string;
+  reviewedAt?: string;
+  cancelledAt?: string;
+  items: SalaryItem[];
+}
+
 export interface Vehicle {
   id: number;
   code: string;
