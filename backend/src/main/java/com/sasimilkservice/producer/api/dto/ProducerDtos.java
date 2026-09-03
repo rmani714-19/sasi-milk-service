@@ -21,6 +21,7 @@ public final class ProducerDtos {
     private static final String IFSC = "^[A-Za-z]{4}0[A-Za-z0-9]{6}$";
     private static final String MOBILE = "^[0-9]{10}$";
     private static final String AADHAAR = "^[0-9]{12}$";
+    private static final String FREQUENCY = "^(WEEKLY|MONTHLY)$";
 
     public record BankBlock(
             @NotBlank String accountHolderName,
@@ -45,11 +46,13 @@ public final class ProducerDtos {
             Long regionId,
             LocalDate joiningDate,
             String notes,
+            @Pattern(regexp = FREQUENCY, message = "paymentFrequency must be WEEKLY or MONTHLY") String paymentFrequency,
             @NotNull(message = "bank details are required") @Valid BankBlock bank) {
 
         public CreateProducerCommand toCommand() {
             return new CreateProducerCommand(producerName, mobileNumber, alternateMobile,
                     email, address, upiId, aadhaarNumber, regionId, joiningDate, notes,
+                    paymentFrequency,
                     bank == null ? null : bank.toCommand());
         }
     }
@@ -64,11 +67,13 @@ public final class ProducerDtos {
             @Pattern(regexp = AADHAAR, message = "Aadhaar must be 12 digits") String aadhaarNumber,
             Long regionId,
             String regionChangeReason,
-            String notes) {
+            String notes,
+            @Pattern(regexp = FREQUENCY, message = "paymentFrequency must be WEEKLY or MONTHLY") String paymentFrequency) {
 
         public UpdateProducerCommand toCommand() {
             return new UpdateProducerCommand(producerName, mobileNumber, alternateMobile, email,
-                    address, upiId, aadhaarNumber, regionId, regionChangeReason, notes);
+                    address, upiId, aadhaarNumber, regionId, regionChangeReason, notes,
+                    paymentFrequency);
         }
     }
 
@@ -112,6 +117,7 @@ public final class ProducerDtos {
             Long regionId,
             LocalDate joiningDate,
             String status,
+            String paymentFrequency,
             String qrCode) {
 
         public static ProducerResponse from(Producer p) {
@@ -119,7 +125,8 @@ public final class ProducerDtos {
                     p.getProducerName(), p.getMobileNumber(), p.getAlternateMobile(), p.getEmail(),
                     p.getAddress(), p.getUpiId(),
                     p.getAadhaarLast4() == null ? null : "XXXXXXXX" + p.getAadhaarLast4(),
-                    p.getRegionId(), p.getJoiningDate(), p.getStatus().name(), p.getQrCode());
+                    p.getRegionId(), p.getJoiningDate(), p.getStatus().name(),
+                    p.getPaymentFrequency().name(), p.getQrCode());
         }
     }
 

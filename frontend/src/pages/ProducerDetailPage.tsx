@@ -143,6 +143,10 @@ export function ProducerDetailPage() {
                 <CardContent>
                   <Stack spacing={1.25}>
                     <Row label="Status" value={<StatusChip status={p.status} />} />
+                    <Row
+                      label="Payment frequency"
+                      value={p.paymentFrequency === 'MONTHLY' ? 'Monthly' : 'Weekly'}
+                    />
                     <Row label="Mobile" value={p.mobileNumber ?? '—'} />
                     <Row label="Alternate mobile" value={p.alternateMobile ?? '—'} />
                     <Row label="GPay / UPI" value={p.upiId ?? '—'} />
@@ -294,6 +298,7 @@ function EditProducerDialog({
     address: producer.address ?? '',
     upiId: producer.upiId ?? '',
     regionId: producer.regionId ? String(producer.regionId) : '',
+    paymentFrequency: producer.paymentFrequency ?? 'WEEKLY',
     aadhaarNumber: '',
     regionChangeReason: '',
   });
@@ -384,6 +389,20 @@ function EditProducerDialog({
                 (producer.aadhaarMasked ? `Current: ${producer.aadhaarMasked} — leave blank to keep` : 'Leave blank if not applicable')
               }
             />
+            <TextField
+              select
+              label="Payment frequency"
+              value={f.paymentFrequency}
+              onChange={set('paymentFrequency')}
+              helperText={
+                f.paymentFrequency !== producer.paymentFrequency
+                  ? 'Applies only to future payment runs — settled payments are unchanged.'
+                  : 'Weekly producers are paid in the weekly run; monthly in the monthly run.'
+              }
+            >
+              <MenuItem value="WEEKLY">Weekly</MenuItem>
+              <MenuItem value="MONTHLY">Monthly</MenuItem>
+            </TextField>
             <TextField label="Address" value={f.address} onChange={set('address')} multiline minRows={2} />
             <TextField select label="Region" value={f.regionId} onChange={set('regionId')}>
               <MenuItem value="">— none —</MenuItem>
@@ -424,6 +443,7 @@ function EditProducerDialog({
               aadhaarNumber: f.aadhaarNumber ? V.onlyDigits(f.aadhaarNumber) : undefined,
               regionId: f.regionId ? Number(f.regionId) : undefined,
               regionChangeReason: und(f.regionChangeReason),
+              paymentFrequency: f.paymentFrequency,
             });
           }}
         >

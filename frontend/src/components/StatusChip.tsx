@@ -15,18 +15,21 @@ export function statusTone(status: string | null | undefined): StatusTone {
     case 'COMPLETED':
     case 'ENABLED':
     case 'SUCCESS':
+    case 'VERIFIED':
       return 'positive';
     case 'PAYOUT_INITIATED':
     case 'PARTIALLY_PAID':
     case 'PROCESSING':
     case 'INITIATED':
     case 'REVIEWED':
+    case 'UNDER_VERIFICATION':
       return 'brand';
     case 'PENDING':
     case 'QUEUED':
     case 'ON_HOLD':
     case 'DUE':
     case 'CALCULATED':
+    case 'PENDING_VERIFICATION':
       return 'pending';
     case 'FAILED':
     case 'CANCELLED':

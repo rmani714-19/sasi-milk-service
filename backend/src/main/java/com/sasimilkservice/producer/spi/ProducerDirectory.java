@@ -1,5 +1,6 @@
 package com.sasimilkservice.producer.spi;
 
+import java.util.List;
 import java.util.Optional;
 
 /** Published SPI of the {@code producer} module. */
@@ -12,6 +13,12 @@ public interface ProducerDirectory {
 
     /** Name + contact channels — used by notifications. */
     Optional<ProducerContact> contact(Long producerId);
+
+    /**
+     * Producer ids on a given payment frequency ("WEEKLY" / "MONTHLY") — used by the
+     * settlement engine to include only the producers a weekly/monthly run should pay.
+     */
+    List<Long> producerIdsByPaymentFrequency(String frequency);
 
     record ProducerView(
             Long id,

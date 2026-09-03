@@ -12,6 +12,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -23,6 +24,8 @@ import java.util.Map;
 public class SettlementItem extends BaseEntity {
 
     public enum PaymentStatus { PENDING, INITIATED, PROCESSING, SUCCESS, FAILED, ON_HOLD, CANCELLED }
+
+    public enum VerificationStatus { PENDING_VERIFICATION, VERIFIED }
 
     @Column(name = "settlement_id", nullable = false)
     private Long settlementId;
@@ -80,6 +83,20 @@ public class SettlementItem extends BaseEntity {
 
     @Column(name = "payment_reference")
     private String paymentReference;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "verification_status", nullable = false)
+    private VerificationStatus verificationStatus = VerificationStatus.PENDING_VERIFICATION;
+
+    /** {@code net_payable} snapshot at verify time — approval is blocked if it later drifts. */
+    @Column(name = "verified_amount")
+    private BigDecimal verifiedAmount;
+
+    @Column(name = "verified_by")
+    private Long verifiedBy;
+
+    @Column(name = "verified_at")
+    private Instant verifiedAt;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "calculation_snapshot", nullable = false, columnDefinition = "jsonb")

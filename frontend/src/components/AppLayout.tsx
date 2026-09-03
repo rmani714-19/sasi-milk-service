@@ -70,7 +70,8 @@ const NAV: NavItem[] = [
   { to: '/advances', label: 'Advances', icon: <AccountBalanceWalletOutlinedIcon />, perm: 'MANAGE_ADVANCES' },
   { to: '/rates', label: 'Rate Chart', icon: <TableChartOutlinedIcon />, perm: 'MANAGE_RATES' },
 
-  { section: 'Payments', to: '/payments/farmers', label: 'Farmer Payments', icon: <PaymentsOutlinedIcon />, perm: 'GENERATE_SETTLEMENT' },
+  { section: 'Payments', to: '/payments/weekly', label: 'Weekly Farmer Payment', icon: <PaymentsOutlinedIcon />, perm: 'GENERATE_SETTLEMENT' },
+  { section: 'Payments', to: '/payments/monthly', label: 'Monthly Farmer Payment', icon: <PaymentsOutlinedIcon />, perm: 'GENERATE_SETTLEMENT' },
   { section: 'Payments', to: '/payments/drivers', label: 'Driver Salary', icon: <BadgeOutlinedIcon />, perm: 'VIEW_PAYMENTS' },
   { section: 'Payments', to: '/payments/history', label: 'Payment History', icon: <HistoryOutlinedIcon />, perm: 'VIEW_PAYMENTS' },
   { section: 'Payments', to: '/payments/reports', label: 'Payment Reports', icon: <SummarizeOutlinedIcon />, perm: 'VIEW_REPORTS' },
@@ -127,7 +128,7 @@ export function AppLayout() {
   const railWidth = collapsed ? NAV_MINI : NAV_FULL;
   const currentLabel =
     items.find((n) => isActive(n.to, pathname))?.label ??
-    (pathname.startsWith('/settlements') ? 'Farmer Payments' : '');
+    (pathname.startsWith('/settlements') ? 'Farmer Payment' : '');
 
   const initials = (user?.fullName ?? '?')
     .split(/\s+/)

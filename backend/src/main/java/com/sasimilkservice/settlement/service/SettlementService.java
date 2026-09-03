@@ -18,6 +18,7 @@ import com.sasimilkservice.deduction.spi.DeductionCalculator.DeductionResult;
 import com.sasimilkservice.deduction.spi.DeductionLedger;
 import com.sasimilkservice.deduction.spi.DeductionLedger.PendingDeductions;
 import com.sasimilkservice.producer.spi.BankAccountResolver;
+import com.sasimilkservice.producer.spi.ProducerDirectory;
 import com.sasimilkservice.settlement.domain.Settlement;
 import com.sasimilkservice.settlement.domain.SettlementAdjustment;
 import com.sasimilkservice.settlement.domain.SettlementItem;
@@ -34,11 +35,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -63,6 +65,7 @@ public class SettlementService implements SettlementPayoutGateway {
     private final AdvanceRecoveryCalculator advanceRecoveryCalculator;
     private final CenterService centerService;
     private final BankAccountResolver bankAccounts;
+    private final ProducerDirectory producerDirectory;
     private final AuditRecorder audit;
 
     public SettlementService(SettlementRepository settlements,
@@ -76,6 +79,7 @@ public class SettlementService implements SettlementPayoutGateway {
                              AdvanceRecoveryCalculator advanceRecoveryCalculator,
                              CenterService centerService,
                              BankAccountResolver bankAccounts,
+                             ProducerDirectory producerDirectory,
                              AuditRecorder audit) {
         this.settlements = settlements;
         this.items = items;
@@ -88,6 +92,7 @@ public class SettlementService implements SettlementPayoutGateway {
         this.advanceRecoveryCalculator = advanceRecoveryCalculator;
         this.centerService = centerService;
         this.bankAccounts = bankAccounts;
+        this.producerDirectory = producerDirectory;
         this.audit = audit;
     }
 
@@ -110,6 +115,11 @@ public class SettlementService implements SettlementPayoutGateway {
 
     @Transactional
     public Settlement create(LocalDate periodStart, LocalDate periodEnd) {
+        return create(periodStart, periodEnd, Settlement.PaymentFrequency.ALL);
+    }
+
+    @Transactional
+    public Settlement create(LocalDate periodStart, LocalDate periodEnd, Settlement.PaymentFrequency frequency) {
         if (periodEnd.isBefore(periodStart)) {
             throw new BusinessRuleException("periodEnd must not be before periodStart");
         }
@@ -117,11 +127,14 @@ public class SettlementService implements SettlementPayoutGateway {
         s.setSettlementNumber(numberGenerator.next(periodStart));
         s.setPeriodStart(periodStart);
         s.setPeriodEnd(periodEnd);
+        s.setPaymentFrequency(frequency == null ? Settlement.PaymentFrequency.ALL : frequency);
         applyRoundingSnapshot(s, centerService.settings().roundingPolicy());
         // DB constraint ex_settlement_no_overlap rejects overlapping non-cancelled periods
+        // for the SAME payment_frequency scope (weekly and monthly runs may overlap).
         s = settlements.save(s);
         audit.record("SETTLEMENT_CREATED", "Settlement", s.getId(),
-                "Settlement %s for %s..%s".formatted(s.getSettlementNumber(), periodStart, periodEnd));
+                "%s settlement %s for %s..%s".formatted(
+                        s.getPaymentFrequency(), s.getSettlementNumber(), periodStart, periodEnd));
         return s;
     }
 
@@ -145,6 +158,13 @@ public class SettlementService implements SettlementPayoutGateway {
                 .unsettledConfirmed(s.getPeriodStart(), s.getPeriodEnd()).stream()
                 .collect(Collectors.groupingBy(SettlementCollectionRow::producerId, LinkedHashMap::new,
                         Collectors.toList()));
+
+        // A weekly / monthly run only pays producers configured for that frequency.
+        if (s.getPaymentFrequency() != Settlement.PaymentFrequency.ALL) {
+            Set<Long> eligible = new HashSet<>(
+                    producerDirectory.producerIdsByPaymentFrequency(s.getPaymentFrequency().name()));
+            byProducer.keySet().retainAll(eligible);
+        }
 
         Map<Long, List<SettlementAdjustment>> adjByProducer = adjustments
                 .findBySettlementIdAndStatus(s.getId(), SettlementAdjustment.Status.ACTIVE).stream()
@@ -240,15 +260,146 @@ public class SettlementService implements SettlementPayoutGateway {
         return s;
     }
 
+    private static final Set<Settlement.Status> VERIFIABLE = Set.of(
+            Settlement.Status.CALCULATED, Settlement.Status.REVIEWED,
+            Settlement.Status.UNDER_VERIFICATION, Settlement.Status.VERIFIED);
+
+    /** Mark one producer line verified (litres + amount checked by the payment processor). */
+    @Transactional
+    public SettlementItem verifyItem(long settlementId, long itemId) {
+        Settlement s = require(settlementId);
+        if (!VERIFIABLE.contains(s.getStatus())) {
+            throw new BusinessRuleException(
+                    "Settlement is " + s.getStatus() + "; producer lines can only be verified before approval");
+        }
+        SettlementItem item = requireItem(settlementId, itemId);
+        item.setVerificationStatus(SettlementItem.VerificationStatus.VERIFIED);
+        item.setVerifiedAmount(item.getNetPayable());
+        item.setVerifiedAt(Instant.now());
+        CurrentUser.id().ifPresent(item::setVerifiedBy);
+        recomputeVerificationState(s);
+        audit.record("PAYMENT_VERIFIED", "SettlementItem", item.getId(),
+                "Producer %d line verified on %s: %s litres, net %s".formatted(
+                        item.getProducerId(), s.getSettlementNumber(),
+                        item.getTotalLitres(), item.getNetPayable()));
+        return item;
+    }
+
+    @Transactional
+    public SettlementItem unverifyItem(long settlementId, long itemId) {
+        Settlement s = require(settlementId);
+        if (!VERIFIABLE.contains(s.getStatus())) {
+            throw new BusinessRuleException("Settlement is " + s.getStatus() + "; verification is locked");
+        }
+        SettlementItem item = requireItem(settlementId, itemId);
+        item.setVerificationStatus(SettlementItem.VerificationStatus.PENDING_VERIFICATION);
+        item.setVerifiedAmount(null);
+        item.setVerifiedAt(null);
+        item.setVerifiedBy(null);
+        recomputeVerificationState(s);
+        audit.record("PAYMENT_VERIFICATION_CLEARED", "SettlementItem", item.getId(),
+                "Producer %d line un-verified on %s".formatted(item.getProducerId(), s.getSettlementNumber()));
+        return item;
+    }
+
+    /** Verify every remaining producer line in one action. */
+    @Transactional
+    public Settlement verifyAll(long settlementId) {
+        Settlement s = require(settlementId);
+        if (!VERIFIABLE.contains(s.getStatus())) {
+            throw new BusinessRuleException(
+                    "Settlement is " + s.getStatus() + "; producer lines can only be verified before approval");
+        }
+        List<SettlementItem> lines = items.findBySettlementIdOrderByProducerIdAsc(settlementId);
+        if (lines.isEmpty()) {
+            throw new BusinessRuleException("Nothing to verify — calculate the settlement first");
+        }
+        Instant now = Instant.now();
+        Long by = CurrentUser.id().orElse(null);
+        for (SettlementItem item : lines) {
+            if (item.getVerificationStatus() != SettlementItem.VerificationStatus.VERIFIED) {
+                item.setVerificationStatus(SettlementItem.VerificationStatus.VERIFIED);
+                item.setVerifiedAmount(item.getNetPayable());
+                item.setVerifiedAt(now);
+                item.setVerifiedBy(by);
+            }
+        }
+        recomputeVerificationState(s);
+        audit.record("PAYMENT_VERIFIED", "Settlement", s.getId(),
+                "All %d producer lines verified on %s".formatted(lines.size(), s.getSettlementNumber()));
+        return s;
+    }
+
     @Transactional
     public Settlement approve(long id) {
-        Settlement s = transition(id, Settlement.Status.REVIEWED, Settlement.Status.APPROVED);
+        Settlement s = require(id);
+        boolean legacyAll = s.getPaymentFrequency() == Settlement.PaymentFrequency.ALL;
+        boolean fromReviewed = legacyAll && s.getStatus() == Settlement.Status.REVIEWED;
+        if (s.getStatus() != Settlement.Status.VERIFIED && !fromReviewed) {
+            throw new BusinessRuleException(
+                    "Settlement is " + s.getStatus() + "; every producer line must be VERIFIED before approval");
+        }
+        List<SettlementItem> lines = items.findBySettlementIdOrderByProducerIdAsc(s.getId());
+        if (lines.isEmpty()) {
+            throw new BusinessRuleException("Cannot approve an empty settlement");
+        }
+        if (!fromReviewed) {
+            for (SettlementItem item : lines) {
+                if (item.getVerificationStatus() != SettlementItem.VerificationStatus.VERIFIED) {
+                    throw new BusinessRuleException(
+                            "Producer " + item.getProducerId() + " is not verified");
+                }
+                if (item.getVerifiedAmount() == null
+                        || item.getVerifiedAmount().compareTo(item.getNetPayable()) != 0) {
+                    throw new BusinessRuleException(("Producer %d amount changed since verification "
+                            + "(verified %s, now %s) — re-verify before approving").formatted(
+                            item.getProducerId(), item.getVerifiedAmount(), item.getNetPayable()));
+                }
+            }
+        }
+        s.setStatus(Settlement.Status.APPROVED);
         s.setApprovedAt(Instant.now());
         CurrentUser.id().ifPresent(s::setApprovedBy);
         audit.record("SETTLEMENT_APPROVED", "Settlement", s.getId(),
                 "Settlement %s approved, net payable %s".formatted(
                         s.getSettlementNumber(), s.getTotalNetPayable()));
         return s;
+    }
+
+    private SettlementItem requireItem(long settlementId, long itemId) {
+        SettlementItem item = items.findById(itemId)
+                .orElseThrow(() -> NotFoundException.of("SettlementItem", itemId));
+        if (!item.getSettlementId().equals(settlementId)) {
+            throw NotFoundException.of("SettlementItem", itemId);
+        }
+        return item;
+    }
+
+    /** Roll the batch status across CALCULATED / UNDER_VERIFICATION / VERIFIED from its lines. */
+    private void recomputeVerificationState(Settlement s) {
+        if (!VERIFIABLE.contains(s.getStatus())) {
+            return;
+        }
+        List<SettlementItem> lines = items.findBySettlementIdOrderByProducerIdAsc(s.getId());
+        if (lines.isEmpty()) {
+            s.setStatus(Settlement.Status.CALCULATED);
+            return;
+        }
+        long verified = lines.stream()
+                .filter(i -> i.getVerificationStatus() == SettlementItem.VerificationStatus.VERIFIED)
+                .count();
+        if (verified == lines.size()) {
+            s.setStatus(Settlement.Status.VERIFIED);
+        } else if (verified > 0) {
+            s.setStatus(Settlement.Status.UNDER_VERIFICATION);
+        } else {
+            s.setStatus(Settlement.Status.CALCULATED);
+        }
+    }
+
+    public List<CollectionSettlementGateway.SettlementItemCollection> collectionsForItem(long settlementId, long itemId) {
+        requireItem(settlementId, itemId);
+        return collections.collectionsForSettlementItem(itemId);
     }
 
     @Transactional

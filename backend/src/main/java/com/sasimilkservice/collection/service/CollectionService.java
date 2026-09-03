@@ -231,6 +231,19 @@ public class CollectionService implements CollectionSettlementGateway {
                 .forEach(c -> c.setSettlementItemId(null));
     }
 
+    @Override
+    public List<SettlementItemCollection> collectionsForSettlementItem(long settlementItemId) {
+        return collections.findBySettlementItemId(settlementItemId).stream()
+                .sorted(java.util.Comparator
+                        .comparing(MilkCollection::getCollectionDate)
+                        .thenComparing(MilkCollection::getShift))
+                .map(c -> new SettlementItemCollection(c.getId(), c.getCollectionNumber(),
+                        c.getCollectionDate(), c.getShift(), c.getMilkQuantityLitres(),
+                        c.getFatPercentage(), c.getSnfPercentage(), c.getApplicableRate(),
+                        c.getBaseAmount(), c.getIncentiveAmount()))
+                .toList();
+    }
+
     private Map<String, Object> snapshot(RecordCollectionCommand cmd, ProducerView producer,
                                          ResolvedRate rate, IncentiveResult incentive,
                                          CollectionAmountCalculator.CollectionAmountBreakdown b) {

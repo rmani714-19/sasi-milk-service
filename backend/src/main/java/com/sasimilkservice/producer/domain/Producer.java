@@ -25,6 +25,9 @@ public class Producer extends AuditableEntity {
 
     public enum Status { ACTIVE, INACTIVE }
 
+    /** How often this producer is paid for their milk. */
+    public enum PaymentFrequency { WEEKLY, MONTHLY }
+
     @Column(name = "public_id", nullable = false, updatable = false)
     private UUID publicId = UUID.randomUUID();
 
@@ -66,6 +69,10 @@ public class Producer extends AuditableEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Status status = Status.ACTIVE;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_frequency", nullable = false)
+    private PaymentFrequency paymentFrequency = PaymentFrequency.WEEKLY;
 
     @Column(name = "qr_code", nullable = false, unique = true)
     private String qrCode;

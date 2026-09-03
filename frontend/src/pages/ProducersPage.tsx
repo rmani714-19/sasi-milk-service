@@ -116,7 +116,7 @@ export function ProducersPage() {
       <Card>
         <QueryBoundary
           query={list}
-          skeleton={<TableSkeleton cols={5} />}
+          skeleton={<TableSkeleton cols={6} />}
           empty={() => rows.length === 0}
           emptyState={
             <EmptyState
@@ -149,6 +149,7 @@ export function ProducersPage() {
                     <TableCell>Name</TableCell>
                     <TableCell>Mobile</TableCell>
                     <TableCell>Region</TableCell>
+                    <TableCell>Payment</TableCell>
                     <TableCell>Status</TableCell>
                   </TableRow>
                 </TableHead>
@@ -159,6 +160,7 @@ export function ProducersPage() {
                       <TableCell>{p.producerName}</TableCell>
                       <TableCell>{p.mobileNumber ?? '—'}</TableCell>
                       <TableCell>{regionShort(regionOf(p.regionId))}</TableCell>
+                      <TableCell>{p.paymentFrequency === 'MONTHLY' ? 'Monthly' : 'Weekly'}</TableCell>
                       <TableCell>
                         <StatusChip status={p.status} />
                       </TableCell>
@@ -191,6 +193,7 @@ const BLANK = {
   upiId: '',
   aadhaarNumber: '',
   regionId: '',
+  paymentFrequency: 'WEEKLY',
   accountHolderName: '',
   accountNumber: '',
   bankName: '',
@@ -257,6 +260,7 @@ function ProducerDialog({
       upiId: und(f.upiId),
       aadhaarNumber: f.aadhaarNumber ? V.onlyDigits(f.aadhaarNumber) : undefined,
       regionId: f.regionId ? Number(f.regionId) : undefined,
+      paymentFrequency: f.paymentFrequency,
       bank: {
         accountHolderName: f.accountHolderName.trim(),
         accountNumber: f.accountNumber.trim(),
@@ -302,6 +306,17 @@ function ProducerDialog({
                 ))}
               </TextField>
             </Stack>
+            <TextField
+              select
+              label="Payment frequency"
+              value={f.paymentFrequency}
+              onChange={set('paymentFrequency')}
+              required
+              helperText="Weekly producers are paid in the weekly run; monthly producers in the monthly run."
+            >
+              <MenuItem value="WEEKLY">Weekly</MenuItem>
+              <MenuItem value="MONTHLY">Monthly</MenuItem>
+            </TextField>
             <TextField label="Address" value={f.address} onChange={set('address')} multiline minRows={2} />
           </FormSection>
 

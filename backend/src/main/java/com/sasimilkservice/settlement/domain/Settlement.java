@@ -30,15 +30,22 @@ import java.util.UUID;
 public class Settlement extends AuditableEntity {
 
     public enum Status {
-        DRAFT, CALCULATED, REVIEWED, APPROVED,
+        DRAFT, CALCULATED, REVIEWED, UNDER_VERIFICATION, VERIFIED, APPROVED,
         PAYOUT_INITIATED, PARTIALLY_PAID, PAID, FAILED, CANCELLED
     }
+
+    /** Which producers this run pays. ALL = legacy (no producer-frequency filter). */
+    public enum PaymentFrequency { WEEKLY, MONTHLY, ALL }
 
     @Column(name = "public_id", nullable = false, updatable = false)
     private UUID publicId = UUID.randomUUID();
 
     @Column(name = "settlement_number", nullable = false, updatable = false)
     private String settlementNumber;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_frequency", nullable = false)
+    private PaymentFrequency paymentFrequency = PaymentFrequency.ALL;
 
     @Column(name = "period_start", nullable = false)
     private LocalDate periodStart;

@@ -70,6 +70,7 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
         p.setAddress(cmd.address());
         p.setRegionId(cmd.regionId());
         p.setNotes(cmd.notes());
+        p.setPaymentFrequency(parseFrequency(cmd.paymentFrequency(), Producer.PaymentFrequency.WEEKLY));
         p.setQrCode("SASI-" + p.getPublicId());
         applyAadhaar(p, cmd.aadhaarNumber());
         if (cmd.joiningDate() != null) {
@@ -98,6 +99,16 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
         p.setNotes(cmd.notes());
         if (cmd.aadhaarNumber() != null && !cmd.aadhaarNumber().isBlank()) {
             applyAadhaar(p, cmd.aadhaarNumber());
+        }
+        if (cmd.paymentFrequency() != null && !cmd.paymentFrequency().isBlank()) {
+            Producer.PaymentFrequency next = parseFrequency(cmd.paymentFrequency(), p.getPaymentFrequency());
+            if (next != p.getPaymentFrequency()) {
+                // Historical settlement_items are immutable snapshots, so past payments are
+                // untouched; the new frequency only affects which future runs pick this producer up.
+                audit.record("PRODUCER_UPDATED", "Producer", p.getId(),
+                        "Payment frequency %s -> %s".formatted(p.getPaymentFrequency(), next));
+                p.setPaymentFrequency(next);
+            }
         }
 
         if (!Objects.equals(p.getRegionId(), cmd.regionId())) {
@@ -224,6 +235,17 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
         return acc;
     }
 
+    private Producer.PaymentFrequency parseFrequency(String raw, Producer.PaymentFrequency fallback) {
+        if (raw == null || raw.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Producer.PaymentFrequency.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessRuleException("paymentFrequency must be WEEKLY or MONTHLY");
+        }
+    }
+
     private void validateRegion(Long regionId) {
         if (regionId != null && !regions.isActive(regionId)) {
             throw new BusinessRuleException("Region " + regionId + " does not exist or is inactive");
@@ -280,6 +302,12 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
     }
 
     @Override
+    public List<Long> producerIdsByPaymentFrequency(String frequency) {
+        Producer.PaymentFrequency f = parseFrequency(frequency, null);
+        return f == null ? List.of() : producers.findIdsByPaymentFrequency(f);
+    }
+
+    @Override
     public Optional<ProducerContact> contact(Long producerId) {
         return producers.findById(producerId)
                 .map(p -> new ProducerContact(p.getId(), p.getProducerName(),
@@ -308,13 +336,15 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
             String producerName, String mobileNumber, String alternateMobile,
             String email, String address, String upiId, String aadhaarNumber,
             Long regionId, java.time.LocalDate joiningDate, String notes,
+            String paymentFrequency,
             AddBankAccountCommand bank) {
     }
 
     public record UpdateProducerCommand(
             String producerName, String mobileNumber, String alternateMobile, String email,
             String address, String upiId, String aadhaarNumber,
-            Long regionId, String regionChangeReason, String notes) {
+            Long regionId, String regionChangeReason, String notes,
+            String paymentFrequency) {
     }
 
     public record UpdateBankAccountCommand(

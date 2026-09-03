@@ -28,6 +28,7 @@ export interface Producer {
   regionId?: number;
   joiningDate: string;
   status: string;
+  paymentFrequency: 'WEEKLY' | 'MONTHLY';
   qrCode: string;
 }
 
@@ -92,6 +93,7 @@ export interface SettlementSummary {
   id: string;
   internalId: number;
   settlementNumber: string;
+  paymentFrequency: 'WEEKLY' | 'MONTHLY' | 'ALL';
   periodStart: string;
   periodEnd: string;
   status: string;
@@ -103,7 +105,12 @@ export interface SettlementSummary {
 export interface SettlementItem {
   id: number;
   producerId: number;
+  producerNumber?: string;
+  producerName?: string;
   regionId?: number;
+  verificationStatus: 'PENDING_VERIFICATION' | 'VERIFIED';
+  verifiedAmount?: number;
+  verifiedAt?: string;
   morningLitres: number;
   eveningLitres: number;
   totalLitres: number;
@@ -124,9 +131,23 @@ export interface SettlementItem {
   paymentStatus: string;
 }
 
+export interface DailyCollectionRow {
+  collectionId: number;
+  collectionNumber: string;
+  collectionDate: string;
+  shift: string;
+  litres: number;
+  fatPercentage: number;
+  snfPercentage: number;
+  ratePerLitre: number;
+  milkAmount: number;
+}
+
 export interface SettlementDetail extends SettlementSummary {
   roundingMode: string;
   roundingScale: number;
+  verifiedCount: number;
+  pendingVerificationCount: number;
   totalMilkAmount: number;
   totalIncentive: number;
   totalDeduction: number;

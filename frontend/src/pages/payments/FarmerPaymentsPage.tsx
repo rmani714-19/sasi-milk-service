@@ -13,19 +13,17 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import { money } from '../../lib/format';
+import { litres, money } from '../../lib/format';
 import { PageHeader } from '../../components/PageHeader';
 import { StatusChip } from '../../components/StatusChip';
 import { EmptyState, QueryBoundary, TableSkeleton, useToast } from '../../components/ui';
 import type { SettlementSummary } from '../../api/types';
 
-type Freq = 'WEEKLY' | 'MONTHLY';
+type Frequency = 'WEEKLY' | 'MONTHLY';
 
 const iso = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -47,18 +45,34 @@ function monthRange(anchor: string) {
   };
 }
 
-const OPEN = ['DRAFT', 'CALCULATED', 'REVIEWED', 'APPROVED', 'PAYOUT_INITIATED', 'PARTIALLY_PAID', 'FAILED'];
+const OPEN = [
+  'DRAFT',
+  'CALCULATED',
+  'UNDER_VERIFICATION',
+  'VERIFIED',
+  'APPROVED',
+  'PAYOUT_INITIATED',
+  'PARTIALLY_PAID',
+  'FAILED',
+];
 
-export function FarmerPaymentsPage() {
+export function WeeklyFarmerPaymentPage() {
+  return <FarmerPaymentPage frequency="WEEKLY" />;
+}
+export function MonthlyFarmerPaymentPage() {
+  return <FarmerPaymentPage frequency="MONTHLY" />;
+}
+
+function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
   const nav = useNavigate();
   const toast = useToast();
   const qc = useQueryClient();
-  const [freq, setFreq] = useState<Freq>('WEEKLY');
+  const weekly = frequency === 'WEEKLY';
   const [weekAnchor, setWeekAnchor] = useState(iso(new Date()));
   const [monthAnchor, setMonthAnchor] = useState(iso(new Date()).slice(0, 7));
   const [statusFilter, setStatusFilter] = useState('');
 
-  const range = freq === 'WEEKLY' ? weekRange(weekAnchor) : monthRange(monthAnchor);
+  const range = weekly ? weekRange(weekAnchor) : monthRange(monthAnchor);
 
   const list = useQuery({
     queryKey: ['settlements'],
@@ -67,68 +81,69 @@ export function FarmerPaymentsPage() {
 
   const create = useMutation({
     mutationFn: async () =>
-      (await api.post<{ internalId: number }>('/settlements', { periodStart: range.from, periodEnd: range.to })).data,
+      (
+        await api.post<{ internalId: number }>('/settlements', {
+          periodStart: range.from,
+          periodEnd: range.to,
+          paymentFrequency: frequency,
+        })
+      ).data,
     onSuccess: (d) => {
-      toast.success('Payment run created');
+      toast.success(`${weekly ? 'Weekly' : 'Monthly'} payment run created`);
       qc.invalidateQueries({ queryKey: ['settlements'] });
       nav(`/settlements/${d.internalId}`);
     },
     onError: toast.fromError,
   });
 
-  const all = list.data ?? [];
+  const mine = useMemo(
+    () => (list.data ?? []).filter((s) => s.paymentFrequency === frequency),
+    [list.data, frequency],
+  );
   const matching = useMemo(
-    () => all.find((s) => s.periodStart === range.from && s.periodEnd === range.to),
-    [all, range.from, range.to],
+    () => mine.find((s) => s.periodStart === range.from && s.periodEnd === range.to && s.status !== 'CANCELLED'),
+    [mine, range.from, range.to],
+  );
+  const shown = useMemo(
+    () =>
+      mine
+        .filter((s) => !statusFilter || s.status === statusFilter)
+        .sort((a, b) => (a.periodStart < b.periodStart ? 1 : -1)),
+    [mine, statusFilter],
   );
 
-  const shown = useMemo(() => {
-    return all
-      .filter((s) => !statusFilter || s.status === statusFilter)
-      .sort((a, b) => (a.periodStart < b.periodStart ? 1 : -1));
-  }, [all, statusFilter]);
-
-  const thisWeek = all.find((s) => {
-    const w = weekRange(iso(new Date()));
-    return s.periodStart === w.from && s.periodEnd === w.to;
-  });
-  const thisMonth = all.find((s) => {
-    const m = monthRange(iso(new Date()).slice(0, 7));
-    return s.periodStart === m.from && s.periodEnd === m.to;
-  });
-  const pendingNet = all.filter((s) => OPEN.includes(s.status)).reduce((x, s) => x + Number(s.totalNetPayable), 0);
-  const paidNet = all.filter((s) => s.status === 'PAID').reduce((x, s) => x + Number(s.totalNetPayable), 0);
-  const failedCount = all.filter((s) => s.status === 'FAILED').length;
+  const thisPeriod = mine.find((s) => s.periodStart === range.from && s.periodEnd === range.to && s.status !== 'CANCELLED');
+  const openRuns = mine.filter((s) => OPEN.includes(s.status));
+  const pendingNet = openRuns.reduce((x, s) => x + Number(s.totalNetPayable), 0);
+  const paidRuns = mine.filter((s) => s.status === 'PAID');
+  const paidNet = paidRuns.reduce((x, s) => x + Number(s.totalNetPayable), 0);
+  const failedCount = mine.filter((s) => s.status === 'FAILED').length;
 
   return (
     <>
       <PageHeader
-        title="Farmer Payments"
-        subtitle="Weekly & monthly milk payments — Calculate → Review → Approve → Pay → Confirm"
+        title={weekly ? 'Weekly Farmer Payment' : 'Monthly Farmer Payment'}
+        subtitle={`${
+          weekly ? 'Weekly' : 'Monthly'
+        } producers only — Calculate → Verify → Approve → Pay → Confirm`}
       />
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <SummaryCard label="This week" value={thisWeek ? money(thisWeek.totalNetPayable) : '—'} hint={thisWeek?.status} />
-        <SummaryCard label="This month" value={thisMonth ? money(thisMonth.totalNetPayable) : '—'} hint={thisMonth?.status} />
-        <SummaryCard label="Pending" value={money(pendingNet)} hint={`${all.filter((s) => OPEN.includes(s.status)).length} runs`} />
-        <SummaryCard label="Paid" value={money(paidNet)} hint={`${all.filter((s) => s.status === 'PAID').length} runs`} />
+        <SummaryCard
+          label={weekly ? 'This week' : 'This month'}
+          value={thisPeriod ? money(thisPeriod.totalNetPayable) : '—'}
+          hint={thisPeriod ? thisPeriod.status.replace(/_/g, ' ') : 'not started'}
+        />
+        <SummaryCard label="Producers due" value={thisPeriod ? String(thisPeriod.totalProducers) : '—'} hint={`${range.from} → ${range.to}`} />
+        <SummaryCard label="Pending" value={money(pendingNet)} hint={`${openRuns.length} open run${openRuns.length === 1 ? '' : 's'}`} />
+        <SummaryCard label="Paid" value={money(paidNet)} hint={`${paidRuns.length} run${paidRuns.length === 1 ? '' : 's'}`} />
         <SummaryCard label="Failed" value={String(failedCount)} hint={failedCount ? 'needs attention' : 'none'} tone={failedCount ? 'error' : undefined} />
       </Grid>
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
-            <ToggleButtonGroup
-              exclusive
-              size="small"
-              value={freq}
-              onChange={(_, v: Freq | null) => v && setFreq(v)}
-            >
-              <ToggleButton value="WEEKLY">Weekly</ToggleButton>
-              <ToggleButton value="MONTHLY">Monthly</ToggleButton>
-            </ToggleButtonGroup>
-
-            {freq === 'WEEKLY' ? (
+            {weekly ? (
               <TextField
                 type="date"
                 label="Week of"
@@ -147,20 +162,17 @@ export function FarmerPaymentsPage() {
                 InputLabelProps={{ shrink: true }}
               />
             )}
-
             <Typography variant="body2" color="text.secondary">
               {range.from} → {range.to}
             </Typography>
-
-            <TextField select size="small" label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} sx={{ minWidth: 160 }}>
+            <TextField select size="small" label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} sx={{ minWidth: 180 }}>
               <MenuItem value="">All</MenuItem>
-              {['DRAFT', 'CALCULATED', 'REVIEWED', 'APPROVED', 'PAYOUT_INITIATED', 'PARTIALLY_PAID', 'PAID', 'FAILED', 'CANCELLED'].map((s) => (
+              {['DRAFT', 'CALCULATED', 'UNDER_VERIFICATION', 'VERIFIED', 'APPROVED', 'PAYOUT_INITIATED', 'PARTIALLY_PAID', 'PAID', 'FAILED', 'CANCELLED'].map((s) => (
                 <MenuItem key={s} value={s}>
                   {s.replace(/_/g, ' ')}
                 </MenuItem>
               ))}
             </TextField>
-
             <Box sx={{ flex: 1 }} />
             <Button
               variant="contained"
@@ -168,7 +180,7 @@ export function FarmerPaymentsPage() {
               disabled={create.isPending}
               onClick={() => (matching ? nav(`/settlements/${matching.internalId}`) : create.mutate())}
             >
-              {matching ? 'Open this run' : `Start ${freq === 'WEEKLY' ? 'weekly' : 'monthly'} run`}
+              {matching ? 'Open this run' : `Start ${weekly ? 'weekly' : 'monthly'} run`}
             </Button>
           </Stack>
         </CardContent>
@@ -179,7 +191,7 @@ export function FarmerPaymentsPage() {
           query={list}
           skeleton={<TableSkeleton cols={6} />}
           empty={() => shown.length === 0}
-          emptyState={<EmptyState title="No payment runs" description="Start a weekly or monthly run above." />}
+          emptyState={<EmptyState title="No payment runs" description={`Start a ${weekly ? 'weekly' : 'monthly'} run above.`} />}
         >
           {() => (
             <Table size="small">
@@ -188,7 +200,8 @@ export function FarmerPaymentsPage() {
                   <TableCell>Run</TableCell>
                   <TableCell>Period</TableCell>
                   <TableCell align="right">Producers</TableCell>
-                  <TableCell align="right">Net Payable</TableCell>
+                  <TableCell align="right">Total litres</TableCell>
+                  <TableCell align="right">Net payable</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell align="right" />
                 </TableRow>
@@ -201,6 +214,7 @@ export function FarmerPaymentsPage() {
                       {s.periodStart} → {s.periodEnd}
                     </TableCell>
                     <TableCell align="right">{s.totalProducers}</TableCell>
+                    <TableCell align="right">{litres(s.totalLitres)}</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 700 }}>
                       {money(s.totalNetPayable)}
                     </TableCell>
@@ -243,7 +257,7 @@ function SummaryCard({
             {value}
           </Typography>
           {hint && (
-            <Typography variant="caption" color="text.secondary" noWrap>
+            <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
               {hint}
             </Typography>
           )}

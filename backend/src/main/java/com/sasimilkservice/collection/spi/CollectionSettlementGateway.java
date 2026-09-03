@@ -18,6 +18,22 @@ public interface CollectionSettlementGateway {
 
     void detachFromSettlement(long settlementItemId);
 
+    /** Every collection that fed a settlement line — the daily breakdown behind a producer payment. */
+    List<SettlementItemCollection> collectionsForSettlementItem(long settlementItemId);
+
+    record SettlementItemCollection(
+            long collectionId,
+            String collectionNumber,
+            LocalDate collectionDate,
+            String shift,
+            BigDecimal litres,
+            BigDecimal fatPercentage,
+            BigDecimal snfPercentage,
+            BigDecimal applicableRate,
+            BigDecimal baseAmount,
+            BigDecimal incentiveAmount) {
+    }
+
     /**
      * @param baseAmount      milk_collections.base_amount (rate snapshot as collected)
      * @param incentiveAmount milk_collections.incentive_amount
