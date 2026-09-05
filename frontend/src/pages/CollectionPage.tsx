@@ -842,14 +842,17 @@ function DateNav({ value, onChange }: { value: string; onChange: (v: string) => 
         </Tooltip>
       </Stack>
 
-      {!isToday && (
-        <Chip
-          size="small"
-          label="Today"
-          onClick={() => onChange(today())}
-          sx={{ fontWeight: 600, cursor: 'pointer' }}
-        />
-      )}
+      <Tooltip title={isToday ? "You're on today" : 'Jump to today'}>
+        <span>
+          <Chip
+            size="small"
+            label="Today"
+            disabled={isToday}
+            onClick={() => onChange(today())}
+            sx={{ fontWeight: 600, cursor: isToday ? 'default' : 'pointer' }}
+          />
+        </span>
+      </Tooltip>
     </Stack>
   );
 }
