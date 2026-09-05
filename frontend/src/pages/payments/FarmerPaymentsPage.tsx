@@ -142,7 +142,7 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }}>
+          <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
             {weekly ? (
               <TextField
                 type="date"
@@ -151,6 +151,7 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
                 value={weekAnchor}
                 onChange={(e) => setWeekAnchor(e.target.value)}
                 InputLabelProps={{ shrink: true }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
             ) : (
               <TextField
@@ -160,12 +161,20 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
                 value={monthAnchor}
                 onChange={(e) => setMonthAnchor(e.target.value)}
                 InputLabelProps={{ shrink: true }}
+                sx={{ width: 190, flexShrink: 0 }}
               />
             )}
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
               {range.from} → {range.to}
             </Typography>
-            <TextField select size="small" label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} sx={{ minWidth: 180 }}>
+            <TextField
+              select
+              size="small"
+              label="Status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              sx={{ width: 180, flexShrink: 0 }}
+            >
               <MenuItem value="">All</MenuItem>
               {['DRAFT', 'CALCULATED', 'UNDER_VERIFICATION', 'VERIFIED', 'APPROVED', 'PAYOUT_INITIATED', 'PARTIALLY_PAID', 'PAID', 'FAILED', 'CANCELLED'].map((s) => (
                 <MenuItem key={s} value={s}>
@@ -173,12 +182,13 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
                 </MenuItem>
               ))}
             </TextField>
-            <Box sx={{ flex: 1 }} />
+            <Box sx={{ flex: '1 1 0', minWidth: 0 }} />
             <Button
               variant="contained"
               startIcon={<PlayArrowIcon />}
               disabled={create.isPending}
               onClick={() => (matching ? nav(`/settlements/${matching.internalId}`) : create.mutate())}
+              sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
             >
               {matching ? 'Open this run' : `Start ${weekly ? 'weekly' : 'monthly'} run`}
             </Button>

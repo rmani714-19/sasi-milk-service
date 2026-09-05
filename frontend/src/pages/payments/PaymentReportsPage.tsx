@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import ButtonGroup from '@mui/material/ButtonGroup';
 import Card from '@mui/material/Card';
@@ -68,14 +69,14 @@ export function PaymentReportsPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack spacing={2.5}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+            <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
               <TextField
                 select
                 label="Payment run"
                 size="small"
                 value={settlementId}
                 onChange={(e) => setSettlementId(e.target.value)}
-                sx={{ minWidth: 260 }}
+                sx={{ width: 320, flexShrink: 0 }}
               >
                 <MenuItem value="">Select a run…</MenuItem>
                 {(settlements.data ?? []).map((s) => (
@@ -85,29 +86,53 @@ export function PaymentReportsPage() {
                 ))}
               </TextField>
               {settlementId && (
-                <ExportButtons base={`/reports/settlement/${settlementId}/payments`} name={`payment-run-${settlementId}`} />
+                <Box sx={{ flexShrink: 0 }}>
+                  <ExportButtons base={`/reports/settlement/${settlementId}/payments`} name={`payment-run-${settlementId}`} />
+                </Box>
               )}
             </Stack>
             <Typography variant="caption" color="text.secondary">
               The run report lists every producer with milk amount, deductions, advance recovery, net payable and payment status.
             </Typography>
 
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
-              <TextField label="From" type="date" size="small" value={from} onChange={(e) => setFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
-              <TextField label="To" type="date" size="small" value={to} onChange={(e) => setTo(e.target.value)} InputLabelProps={{ shrink: true }} />
-              <ExportButtons base={`/reports/region?from=${from}&to=${to}`} name="region-payments" />
-              <Typography variant="caption" color="text.secondary">
+            <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+              <TextField
+                label="From"
+                type="date"
+                size="small"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                sx={{ width: 170, flexShrink: 0 }}
+              />
+              <TextField
+                label="To"
+                type="date"
+                size="small"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                sx={{ width: 170, flexShrink: 0 }}
+              />
+              <Box sx={{ flexShrink: 0 }}>
+                <ExportButtons base={`/reports/region?from=${from}&to=${to}`} name="region-payments" />
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
                 Region-wise payment summary
               </Typography>
             </Stack>
 
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
-              <ProducerPicker value={producer} onChange={setProducer} label="Producer statement" />
+            <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+              <Box sx={{ width: 320, flexShrink: 0 }}>
+                <ProducerPicker value={producer} onChange={setProducer} label="Producer statement" />
+              </Box>
               {producer && (
-                <ExportButtons
-                  base={`/reports/producer-statement?producerId=${producer.id}&from=${from}&to=${to}`}
-                  name={`producer-${producer.producerNumber}-statement`}
-                />
+                <Box sx={{ flexShrink: 0 }}>
+                  <ExportButtons
+                    base={`/reports/producer-statement?producerId=${producer.id}&from=${from}&to=${to}`}
+                    name={`producer-${producer.producerNumber}-statement`}
+                  />
+                </Box>
               )}
             </Stack>
           </Stack>
@@ -117,14 +142,14 @@ export function PaymentReportsPage() {
       <SectionTitle>Driver salary</SectionTitle>
       <Card>
         <CardContent>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+          <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
             <TextField
               select
               label="Salary batch"
               size="small"
               value={batchId}
               onChange={(e) => setBatchId(e.target.value)}
-              sx={{ minWidth: 260 }}
+              sx={{ width: 320, flexShrink: 0 }}
             >
               <MenuItem value="">Select a batch…</MenuItem>
               {(batches.data ?? []).map((b) => (
@@ -133,7 +158,11 @@ export function PaymentReportsPage() {
                 </MenuItem>
               ))}
             </TextField>
-            {batchId && <ExportButtons base={`/salary-batches/${batchId}/report`} name={`driver-salary-${batchId}`} />}
+            {batchId && (
+              <Box sx={{ flexShrink: 0 }}>
+                <ExportButtons base={`/salary-batches/${batchId}/report`} name={`driver-salary-${batchId}`} />
+              </Box>
+            )}
           </Stack>
           <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
             Pending / failed payments are on the Payment History screen — filter by status.

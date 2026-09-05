@@ -115,13 +115,27 @@ export function PaymentHistoryPage() {
 
       <Card sx={{ mb: 2 }}>
         <CardContent>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} flexWrap="wrap" useFlexGap>
-            <TextField select size="small" label="Type" value={type} onChange={(e) => setType(e.target.value)} sx={{ minWidth: 130 }}>
+          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
+            <TextField
+              select
+              size="small"
+              label="Type"
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              sx={{ width: 150, flexShrink: 0 }}
+            >
               <MenuItem value="">All types</MenuItem>
               <MenuItem value="FARMER">Farmer</MenuItem>
               <MenuItem value="DRIVER">Driver salary</MenuItem>
             </TextField>
-            <TextField select size="small" label="Status" value={status} onChange={(e) => setStatus(e.target.value)} sx={{ minWidth: 140 }}>
+            <TextField
+              select
+              size="small"
+              label="Status"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              sx={{ width: 160, flexShrink: 0 }}
+            >
               <MenuItem value="">All statuses</MenuItem>
               {['PENDING', 'PROCESSING', 'INITIATED', 'SUCCESS', 'PAID', 'FAILED', 'ON_HOLD', 'CANCELLED'].map((s) => (
                 <MenuItem key={s} value={s}>
@@ -129,9 +143,31 @@ export function PaymentHistoryPage() {
                 </MenuItem>
               ))}
             </TextField>
-            <TextField type="date" size="small" label="From" value={from} onChange={(e) => setFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
-            <TextField type="date" size="small" label="To" value={to} onChange={(e) => setTo(e.target.value)} InputLabelProps={{ shrink: true }} />
-            <TextField size="small" placeholder="Search reference / recipient" value={q} onChange={(e) => setQ(e.target.value)} sx={{ minWidth: 220, flex: 1 }} />
+            <TextField
+              type="date"
+              size="small"
+              label="From"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ width: 170, flexShrink: 0 }}
+            />
+            <TextField
+              type="date"
+              size="small"
+              label="To"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ width: 170, flexShrink: 0 }}
+            />
+            <TextField
+              size="small"
+              placeholder="Search reference / recipient"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              sx={{ minWidth: 220, flex: '1 1 220px' }}
+            />
           </Stack>
         </CardContent>
       </Card>

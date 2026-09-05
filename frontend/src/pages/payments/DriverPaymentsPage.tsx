@@ -187,14 +187,14 @@ function SalaryRuns() {
     <>
       <Card sx={{ mb: 2 }}>
         <CardContent>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+          <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
             <TextField
               select
               size="small"
               label="Batch"
               value={selectedId ?? ''}
               onChange={(e) => setSelectedId(Number(e.target.value))}
-              sx={{ minWidth: 240 }}
+              sx={{ width: 280, flexShrink: 0 }}
             >
               {(batches.data ?? []).map((b) => (
                 <MenuItem key={b.id} value={b.id}>
@@ -203,9 +203,23 @@ function SalaryRuns() {
               ))}
               {(batches.data ?? []).length === 0 && <MenuItem value="">No batches yet</MenuItem>}
             </TextField>
-            <Box sx={{ flex: 1 }} />
-            <TextField type="month" size="small" label="New month" value={month} onChange={(e) => setMonth(e.target.value)} InputLabelProps={{ shrink: true }} />
-            <Button variant="contained" startIcon={<AddIcon />} disabled={create.isPending} onClick={() => create.mutate()}>
+            <Box sx={{ flex: '1 1 0', minWidth: 0 }} />
+            <TextField
+              type="month"
+              size="small"
+              label="New month"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ width: 190, flexShrink: 0 }}
+            />
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              disabled={create.isPending}
+              onClick={() => create.mutate()}
+              sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+            >
               Create run
             </Button>
           </Stack>
