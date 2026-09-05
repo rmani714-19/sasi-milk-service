@@ -34,6 +34,11 @@ import WbSunnyOutlinedIcon from '@mui/icons-material/WbSunnyOutlined';
 import Brightness3OutlinedIcon from '@mui/icons-material/Brightness3Outlined';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ScaleOutlinedIcon from '@mui/icons-material/ScaleOutlined';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import CalendarMonthOutlinedIcon from '@mui/icons-material/CalendarMonthOutlined';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { format as formatDate, parseISO, addDays, isSameDay } from 'date-fns';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { litres as fmtL, money, rate as fmtRate, today, uuid } from '../lib/format';
@@ -69,9 +74,6 @@ function shiftForNow(d = new Date()): Shift {
   const h = d.getHours();
   return h >= 6 && h < 13 ? 'MORNING' : 'EVENING';
 }
-
-const prettyDate = (d: string) =>
-  new Date(d).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
 
 const isEnter = (e: ReactKeyboardEvent) =>
   e.key === 'Enter' || e.key === 'Return' || e.code === 'Enter' || e.code === 'NumpadEnter';
@@ -361,20 +363,9 @@ export function CollectionPage() {
           <Typography variant="h5" sx={{ fontWeight: 700 }}>
             Milk Collection
           </Typography>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.25 }}>
-            <Typography variant="body2" color="text.secondary">
-              {prettyDate(date)}
-            </Typography>
-            <TextField
-              type="date"
-              size="small"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              variant="standard"
-              InputProps={{ disableUnderline: true }}
-              sx={{ width: 130, '& input': { fontSize: 12, color: 'text.secondary', py: 0 } }}
-            />
-          </Stack>
+          <Box sx={{ mt: 0.5 }}>
+            <DateNav value={date} onChange={setDate} />
+          </Box>
         </Box>
 
         <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flexWrap: 'wrap', rowGap: 1 }}>
@@ -788,6 +779,80 @@ export function CollectionPage() {
 }
 
 /* ----------------------------------------------------------------- pieces */
+
+/** Compact, modern date navigator: prev/next day arrows + a click-to-open calendar. */
+function DateNav({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const selected = parseISO(value);
+  const isToday = isSameDay(selected, new Date());
+  const go = (days: number) => onChange(formatDate(addDays(selected, days), 'yyyy-MM-dd'));
+
+  return (
+    <Stack direction="row" alignItems="center" spacing={0.25}>
+      <Stack
+        direction="row"
+        alignItems="center"
+        sx={{
+          bgcolor: 'action.hover',
+          borderRadius: 999,
+          pl: 0.5,
+          pr: 0.5,
+          transition: 'background-color 120ms ease',
+          '&:hover': { bgcolor: 'action.selected' },
+        }}
+      >
+        <Tooltip title="Previous day">
+          <IconButton size="small" onClick={() => go(-1)} aria-label="Previous day">
+            <ChevronLeftIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+
+        <DatePicker
+          value={selected}
+          maxDate={new Date()}
+          onChange={(v) => v && onChange(formatDate(v, 'yyyy-MM-dd'))}
+          format="EEE, d MMM yyyy"
+          slots={{ openPickerIcon: CalendarMonthOutlinedIcon }}
+          slotProps={{
+            textField: {
+              variant: 'standard',
+              size: 'small',
+              InputProps: { disableUnderline: true },
+              sx: {
+                width: 168,
+                '& input': {
+                  fontSize: 13,
+                  fontWeight: 700,
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  caretColor: 'transparent',
+                },
+              },
+            },
+            openPickerButton: { size: 'small', sx: { '& svg': { fontSize: 18 } } },
+            popper: { placement: 'bottom-start' },
+          }}
+        />
+
+        <Tooltip title={isToday ? "You're on today" : 'Next day'}>
+          <span>
+            <IconButton size="small" onClick={() => go(1)} disabled={isToday} aria-label="Next day">
+              <ChevronRightIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      </Stack>
+
+      {!isToday && (
+        <Chip
+          size="small"
+          label="Today"
+          onClick={() => onChange(today())}
+          sx={{ fontWeight: 600, cursor: 'pointer' }}
+        />
+      )}
+    </Stack>
+  );
+}
 
 function Figure({ label, value }: { label: string; value: string }) {
   return (
