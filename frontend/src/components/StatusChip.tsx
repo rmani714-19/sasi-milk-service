@@ -16,6 +16,7 @@ export function statusTone(status: string | null | undefined): StatusTone {
     case 'ENABLED':
     case 'SUCCESS':
     case 'VERIFIED':
+    case 'RESOLVED':
       return 'positive';
     case 'PAYOUT_INITIATED':
     case 'PARTIALLY_PAID':
@@ -36,6 +37,7 @@ export function statusTone(status: string | null | undefined): StatusTone {
     case 'REJECTED':
     case 'REVERSED':
     case 'ERROR':
+    case 'OPEN':
       return 'danger';
     case 'DRAFT':
     case 'INACTIVE':

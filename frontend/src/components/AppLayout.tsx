@@ -73,7 +73,7 @@ const NAV: NavItem[] = [
   { section: 'Payments', to: '/payments/weekly', label: 'Weekly Farmer Payment', icon: <PaymentsOutlinedIcon />, perm: 'GENERATE_SETTLEMENT' },
   { section: 'Payments', to: '/payments/monthly', label: 'Monthly Farmer Payment', icon: <PaymentsOutlinedIcon />, perm: 'GENERATE_SETTLEMENT' },
   { section: 'Payments', to: '/payments/drivers', label: 'Driver Salary', icon: <BadgeOutlinedIcon />, perm: 'VIEW_PAYMENTS' },
-  { section: 'Payments', to: '/payments/history', label: 'Payment History', icon: <HistoryOutlinedIcon />, perm: 'VIEW_PAYMENTS' },
+  { section: 'Payments', to: '/payments/history', label: 'Payment Activity', icon: <HistoryOutlinedIcon />, perm: 'VIEW_PAYMENTS' },
   { section: 'Payments', to: '/payments/reports', label: 'Payment Reports', icon: <SummarizeOutlinedIcon />, perm: 'VIEW_REPORTS' },
 
   { section: 'Insights', to: '/reports', label: 'Reports', icon: <AssessmentOutlinedIcon />, perm: 'VIEW_REPORTS' },

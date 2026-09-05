@@ -86,14 +86,15 @@ public class DriverSalaryService {
                     i.getPaymentStatus().name(),
                     i.getPaymentMethod() == null ? null : i.getPaymentMethod().name(),
                     i.getPaymentReference(),
-                    i.getPaidAt());
+                    i.getPaidAt(),
+                    i.getFailureReason());
         }).toList();
     }
 
     public record SalaryPaymentRow(
             Long itemId, String batchNumber, LocalDate periodMonth, String driverCode, String driverName,
             BigDecimal netSalary, String paymentStatus, String paymentMethod, String paymentReference,
-            Instant paidAt) {
+            Instant paidAt, String failureReason) {
     }
 
     @Transactional

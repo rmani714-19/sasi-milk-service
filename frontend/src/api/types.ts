@@ -394,3 +394,42 @@ export interface PreValidationReport {
   result: 'READY_FOR_APPROVAL' | 'BLOCKED';
   checks: PreValidationCheck[];
 }
+
+export type ExpenseCategory =
+  | 'FUEL'
+  | 'MAINTENANCE'
+  | 'RENT'
+  | 'UTILITIES'
+  | 'OFFICE_SUPPLIES'
+  | 'TRANSPORT'
+  | 'SALARY_OTHER'
+  | 'MISC'
+  | 'OTHER';
+
+export interface Expense {
+  id: number;
+  expenseNumber: string;
+  category: ExpenseCategory;
+  description?: string;
+  amount: number;
+  expenseDate: string;
+  paymentMethod: 'CASH' | 'BANK_TRANSFER' | 'UPI' | 'CHEQUE' | 'OTHER';
+  paymentReference?: string;
+  status: 'PAID' | 'FAILED' | 'CANCELLED';
+  paidAt: string;
+}
+
+export type PaymentFlagSubjectType = 'PAYOUT' | 'SALARY_ITEM' | 'EXPENSE';
+
+export interface PaymentFlag {
+  id: number;
+  subjectType: PaymentFlagSubjectType;
+  subjectId: number;
+  note: string;
+  status: 'OPEN' | 'RESOLVED';
+  flaggedBy?: number;
+  flaggedAt: string;
+  resolutionNote?: string;
+  resolvedBy?: number;
+  resolvedAt?: string;
+}
