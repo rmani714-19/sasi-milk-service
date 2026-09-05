@@ -1,5 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import Accordion from '@mui/material/Accordion';
+import AccordionDetails from '@mui/material/AccordionDetails';
+import AccordionSummary from '@mui/material/AccordionSummary';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
@@ -23,15 +26,47 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { litres, money } from '../lib/format';
+import { useRegions } from '../api/common';
+import { regionLabel } from '../lib/region';
 import { PageHeader } from '../components/PageHeader';
 import { StatusChip } from '../components/StatusChip';
 import { BankBalanceCard, OwnerApprovalDialog, PreValidationCard } from '../components/PaymentGates';
 import { ConfirmDialog, QueryBoundary, SectionTitle, useToast } from '../components/ui';
 import { useAuth } from '../lib/auth';
-import type { BankBalanceCheck, DailyCollectionRow, Payout, PreValidationReport, SettlementDetail, SettlementItem } from '../api/types';
+import type { BankBalanceCheck, DailyCollectionRow, Payout, PreValidationReport, Region, SettlementDetail, SettlementItem } from '../api/types';
+
+interface RegionGroup {
+  key: string;
+  label: string;
+  items: SettlementItem[];
+}
+
+/** Group producer lines by region so a large run can be reviewed area by area. */
+function groupByRegion(items: SettlementItem[], regions: Region[] | undefined): RegionGroup[] {
+  const byId = new Map((regions ?? []).map((r) => [r.id, r]));
+  const groups = new Map<string, RegionGroup>();
+  for (const it of items) {
+    const key = it.regionId != null ? String(it.regionId) : 'none';
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        label: it.regionId != null ? regionLabel(byId.get(it.regionId)) : 'No region assigned',
+        items: [],
+      });
+    }
+    groups.get(key)!.items.push(it);
+  }
+  return [...groups.values()].sort((a, b) => {
+    if (a.key === 'none') return 1;
+    if (b.key === 'none') return -1;
+    return a.label.localeCompare(b.label);
+  });
+}
 
 const LIFECYCLE = ['Draft', 'Calculated', 'Verified', 'Bank balance', 'Pre-validation', 'Approved', 'Paid'] as const;
 
@@ -73,6 +108,11 @@ export function SettlementDetailPage() {
     queryKey: ['settlement', id],
     queryFn: async () => (await api.get<SettlementDetail>(`/settlements/${id}`)).data,
   });
+  const regions = useRegions();
+  const groups = useMemo(
+    () => groupByRegion(detail.data?.items ?? [], regions.data),
+    [detail.data, regions.data],
+  );
   const payouts = useQuery({
     queryKey: ['payouts', id],
     queryFn: async () => (await api.get<Payout[]>('/payouts', { params: { settlementId: id } })).data,
@@ -106,6 +146,20 @@ export function SettlementDetailPage() {
     onError: toast.fromError,
   });
 
+  // sequential — verifying concurrently would race the settlement's own optimistic-lock version
+  const verifyRegion = useMutation({
+    mutationFn: async (itemIds: number[]) => {
+      for (const itemId of itemIds) {
+        await api.post(`/settlements/${id}/items/${itemId}/verify`);
+      }
+    },
+    onSuccess: () => {
+      toast.success('Region verified');
+      invalidate();
+    },
+    onError: toast.fromError,
+  });
+
   const initiatePayouts = useMutation({
     mutationFn: async () => (await api.post(`/settlements/${id}/payouts`)).data,
     onSuccess: () => {
@@ -129,7 +183,7 @@ export function SettlementDetailPage() {
   return (
     <QueryBoundary query={detail}>
       {(s) => {
-        const busy = lifecycle.isPending || initiatePayouts.isPending || verifyItem.isPending;
+        const busy = lifecycle.isPending || initiatePayouts.isPending || verifyItem.isPending || verifyRegion.isPending;
         const legacyAll = s.paymentFrequency === 'ALL';
         const balanceOk =
           !!balance?.sufficient && Number(balance.requiredAmount) === Number(s.totalNetPayable);
@@ -239,96 +293,154 @@ export function SettlementDetailPage() {
             </Grid>
 
             <SectionTitle>Producer verification</SectionTitle>
-            <Card sx={{ mb: 4 }}>
-              <TableContainer sx={{ maxHeight: 'calc(100vh - 360px)' }}>
-                <Table size="small" stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Producer</TableCell>
-                      <TableCell align="right">Litres</TableCell>
-                      <TableCell align="right">Milk</TableCell>
-                      <TableCell align="right">Incentive</TableCell>
-                      <TableCell align="right">Deduction</TableCell>
-                      <TableCell align="right">Advance</TableCell>
-                      <TableCell align="right">Net payable</TableCell>
-                      <TableCell>Verification</TableCell>
-                      <TableCell>Payment</TableCell>
-                      <TableCell align="right">Action</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {s.items.map((it) => {
-                      const verified = it.verificationStatus === 'VERIFIED';
-                      const drift = verified && it.verifiedAmount != null && it.verifiedAmount !== it.netPayable;
-                      return (
-                        <TableRow key={it.id} hover>
-                          <TableCell>
-                            <Typography variant="body2" fontWeight={600}>
-                              {it.producerName ?? `Producer #${it.producerId}`}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {it.producerNumber ?? `#${it.producerId}`}
-                            </Typography>
-                          </TableCell>
-                          <TableCell align="right">{litres(it.totalLitres)}</TableCell>
-                          <TableCell align="right">{money(it.milkAmount)}</TableCell>
-                          <TableCell align="right">{money(it.incentiveAmount)}</TableCell>
-                          <TableCell align="right">{money(it.totalDeduction - it.advanceRecovery)}</TableCell>
-                          <TableCell align="right">{money(it.advanceRecovery)}</TableCell>
-                          <TableCell align="right" sx={{ fontWeight: 700 }}>
-                            {money(it.netPayable)}
-                          </TableCell>
-                          <TableCell>
-                            {drift ? (
-                              <Chip size="small" color="warning" label="Re-verify" />
-                            ) : (
-                              <StatusChip status={it.verificationStatus} />
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <StatusChip status={it.paymentStatus} />
-                          </TableCell>
-                          <TableCell align="right">
-                            <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                              <Button size="small" onClick={() => setDetailFor(it)}>
-                                View
-                              </Button>
-                              {preApproval && can('VERIFY_PAYMENT') &&
-                                (verified && !drift ? (
-                                  <Button
-                                    size="small"
-                                    color="inherit"
-                                    disabled={busy}
-                                    onClick={() => verifyItem.mutate({ itemId: it.id, action: 'unverify' })}
-                                  >
-                                    Unverify
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    size="small"
-                                    variant="contained"
-                                    disabled={busy}
-                                    onClick={() => verifyItem.mutate({ itemId: it.id, action: 'verify' })}
-                                  >
-                                    Verify
-                                  </Button>
-                                ))}
-                            </Stack>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                    {s.items.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={10} sx={{ textAlign: 'center', py: 4, color: 'text.secondary' }}>
-                          No lines yet — calculate the settlement.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Card>
+            {groups.length === 0 ? (
+              <Card sx={{ mb: 4 }}>
+                <CardContent>
+                  <Typography color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
+                    No lines yet — calculate the settlement.
+                  </Typography>
+                </CardContent>
+              </Card>
+            ) : (
+              <Box sx={{ mb: 4 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Grouped by region — review and verify each area, then approve the whole run once, at the bottom.
+                </Typography>
+                {groups.map((g) => {
+                  const groupVerified = g.items.filter((it) => it.verificationStatus === 'VERIFIED').length;
+                  const groupLitres = g.items.reduce((sum, it) => sum + Number(it.totalLitres), 0);
+                  const groupNet = g.items.reduce((sum, it) => sum + Number(it.netPayable), 0);
+                  const groupDone = groupVerified === g.items.length;
+                  return (
+                    <Accordion key={g.key} defaultExpanded variant="outlined" sx={{ mb: 1.5, '&:before': { display: 'none' } }}>
+                      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                        <Stack
+                          direction="row"
+                          spacing={2}
+                          alignItems="center"
+                          sx={{ width: '100%', pr: 1, flexWrap: 'wrap', rowGap: 1 }}
+                        >
+                          <Stack direction="row" spacing={0.75} alignItems="center">
+                            <PlaceOutlinedIcon fontSize="small" color="action" />
+                            <Typography sx={{ fontWeight: 700 }}>{g.label}</Typography>
+                          </Stack>
+                          <Chip size="small" variant="outlined" label={`${g.items.length} producer${g.items.length === 1 ? '' : 's'}`} />
+                          <Typography variant="body2" color="text.secondary">
+                            {litres(groupLitres)}
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            {money(groupNet)}
+                          </Typography>
+                          <StatusChip
+                            status={groupDone ? 'VERIFIED' : 'PENDING_VERIFICATION'}
+                            label={`Verified ${groupVerified}/${g.items.length}`}
+                          />
+                          <Box sx={{ flex: 1 }} />
+                          {preApproval && !groupDone && can('VERIFY_PAYMENT') && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              disabled={busy}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                verifyRegion.mutate(
+                                  g.items.filter((it) => it.verificationStatus !== 'VERIFIED').map((it) => it.id),
+                                );
+                              }}
+                            >
+                              {verifyRegion.isPending ? 'Verifying…' : 'Verify all in this region'}
+                            </Button>
+                          )}
+                        </Stack>
+                      </AccordionSummary>
+                      <AccordionDetails sx={{ p: 0 }}>
+                        <TableContainer sx={{ maxHeight: 420 }}>
+                          <Table size="small" stickyHeader>
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>Producer</TableCell>
+                                <TableCell align="right">Litres</TableCell>
+                                <TableCell align="right">Milk</TableCell>
+                                <TableCell align="right">Incentive</TableCell>
+                                <TableCell align="right">Deduction</TableCell>
+                                <TableCell align="right">Advance</TableCell>
+                                <TableCell align="right">Net payable</TableCell>
+                                <TableCell>Verification</TableCell>
+                                <TableCell>Payment</TableCell>
+                                <TableCell align="right">Action</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {g.items.map((it) => {
+                                const verified = it.verificationStatus === 'VERIFIED';
+                                const drift = verified && it.verifiedAmount != null && it.verifiedAmount !== it.netPayable;
+                                return (
+                                  <TableRow key={it.id} hover>
+                                    <TableCell>
+                                      <Typography variant="body2" fontWeight={600}>
+                                        {it.producerName ?? `Producer #${it.producerId}`}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        {it.producerNumber ?? `#${it.producerId}`}
+                                      </Typography>
+                                    </TableCell>
+                                    <TableCell align="right">{litres(it.totalLitres)}</TableCell>
+                                    <TableCell align="right">{money(it.milkAmount)}</TableCell>
+                                    <TableCell align="right">{money(it.incentiveAmount)}</TableCell>
+                                    <TableCell align="right">{money(it.totalDeduction - it.advanceRecovery)}</TableCell>
+                                    <TableCell align="right">{money(it.advanceRecovery)}</TableCell>
+                                    <TableCell align="right" sx={{ fontWeight: 700 }}>
+                                      {money(it.netPayable)}
+                                    </TableCell>
+                                    <TableCell>
+                                      {drift ? (
+                                        <Chip size="small" color="warning" label="Re-verify" />
+                                      ) : (
+                                        <StatusChip status={it.verificationStatus} />
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      <StatusChip status={it.paymentStatus} />
+                                    </TableCell>
+                                    <TableCell align="right">
+                                      <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                                        <Button size="small" onClick={() => setDetailFor(it)}>
+                                          View
+                                        </Button>
+                                        {preApproval && can('VERIFY_PAYMENT') &&
+                                          (verified && !drift ? (
+                                            <Button
+                                              size="small"
+                                              color="inherit"
+                                              disabled={busy}
+                                              onClick={() => verifyItem.mutate({ itemId: it.id, action: 'unverify' })}
+                                            >
+                                              Unverify
+                                            </Button>
+                                          ) : (
+                                            <Button
+                                              size="small"
+                                              variant="contained"
+                                              disabled={busy}
+                                              onClick={() => verifyItem.mutate({ itemId: it.id, action: 'verify' })}
+                                            >
+                                              Verify
+                                            </Button>
+                                          ))}
+                                      </Stack>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      </AccordionDetails>
+                    </Accordion>
+                  );
+                })}
+              </Box>
+            )}
 
             {showGates && (
               <>

@@ -2,6 +2,7 @@ package com.sasimilkservice.center.api;
 
 import com.sasimilkservice.center.domain.Center;
 import com.sasimilkservice.center.service.CenterService;
+import com.sasimilkservice.center.service.CenterService.PayoutAccountInput;
 import com.sasimilkservice.center.service.CenterService.UpdateCenterCommand;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
 @RestController
 @RequestMapping("/api/v1/center")
@@ -31,6 +33,17 @@ public class CenterController {
     @GetMapping
     public CenterResponse get() {
         return CenterResponse.from(service.get());
+    }
+
+    /** Full, decrypted payout account — restricted to whoever can run bank-balance verification. */
+    @GetMapping("/payout-account")
+    @PreAuthorize("hasAnyAuthority('VERIFY_PAYMENT','GENERATE_SETTLEMENT','APPROVE_SETTLEMENT','PROCESS_PAYMENT','ALL')")
+    public PayoutAccountResponse payoutAccount() {
+        var v = service.payoutAccountView();
+        if (v == null) {
+            return null;
+        }
+        return new PayoutAccountResponse(v.accountHolderName(), v.accountNumber(), v.ifsc(), v.bankName(), v.updatedAt());
     }
 
     @PutMapping
@@ -50,12 +63,20 @@ public class CenterController {
             @Min(0) @Max(4) Integer roundingScale,
             String incentiveStacking,
             @DecimalMin("0.0") BigDecimal incentiveMaxPerLitre,
-            Boolean allowMissingRate) {
+            Boolean allowMissingRate,
+            String payoutAccountHolderName,
+            String payoutAccountNumber,
+            String payoutIfsc,
+            String payoutBankName) {
 
         UpdateCenterCommand toCommand() {
+            PayoutAccountInput payout = (payoutAccountHolderName == null && payoutAccountNumber == null
+                    && payoutIfsc == null && payoutBankName == null)
+                    ? null
+                    : new PayoutAccountInput(payoutAccountHolderName, payoutAccountNumber, payoutIfsc, payoutBankName);
             return new UpdateCenterCommand(centerName, ownerName, mobileNumber, email, address,
                     settlementDayOfWeek, roundingMode, roundingScale, incentiveStacking,
-                    incentiveMaxPerLitre, allowMissingRate);
+                    incentiveMaxPerLitre, allowMissingRate, payout);
         }
     }
 
@@ -75,14 +96,26 @@ public class CenterController {
             BigDecimal fatMin,
             BigDecimal fatMax,
             BigDecimal snfMin,
-            BigDecimal snfMax) {
+            BigDecimal snfMax,
+            String payoutAccountHolderName,
+            String payoutAccountNumberMasked,
+            String payoutIfsc,
+            String payoutBankName,
+            boolean payoutAccountComplete,
+            Instant payoutAccountUpdatedAt) {
 
         static CenterResponse from(Center c) {
             return new CenterResponse(c.getCenterName(), c.getOwnerName(), c.getMobileNumber(),
                     c.getEmail(), c.getAddress(), c.getCurrencyCode(), c.getSettlementDayOfWeek(),
                     c.getRoundingMode(), c.getRoundingScale(), c.getIncentiveStacking(),
                     c.getIncentiveMaxPerLitre(), c.isAllowMissingRate(),
-                    c.getFatMin(), c.getFatMax(), c.getSnfMin(), c.getSnfMax());
+                    c.getFatMin(), c.getFatMax(), c.getSnfMin(), c.getSnfMax(),
+                    c.getPayoutAccountHolderName(), c.maskedPayoutAccount(), c.getPayoutIfsc(),
+                    c.getPayoutBankName(), c.isPayoutAccountComplete(), c.getPayoutAccountUpdatedAt());
         }
+    }
+
+    public record PayoutAccountResponse(
+            String accountHolderName, String accountNumber, String ifsc, String bankName, Instant updatedAt) {
     }
 }

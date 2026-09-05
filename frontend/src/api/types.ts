@@ -320,6 +320,20 @@ export interface CenterSettings {
   fatMax: number;
   snfMin: number;
   snfMax: number;
+  payoutAccountHolderName?: string;
+  payoutAccountNumberMasked?: string;
+  payoutIfsc?: string;
+  payoutBankName?: string;
+  payoutAccountComplete: boolean;
+  payoutAccountUpdatedAt?: string;
+}
+
+export interface PayoutAccountDetails {
+  accountHolderName: string;
+  accountNumber: string;
+  ifsc: string;
+  bankName: string;
+  updatedAt?: string;
 }
 
 export type IncentiveTarget = 'PRODUCER' | 'MEDIATOR';
