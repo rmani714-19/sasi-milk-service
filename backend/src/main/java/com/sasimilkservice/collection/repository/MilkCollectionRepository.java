@@ -39,5 +39,7 @@ public interface MilkCollectionRepository extends JpaRepository<MilkCollection, 
     List<MilkCollection> findByStatusAndSettlementItemIdIsNullAndCollectionDateBetween(
             MilkCollection.Status status, LocalDate start, LocalDate end);
 
+    long countByStatusAndCollectionDateBetween(MilkCollection.Status status, LocalDate start, LocalDate end);
+
     List<MilkCollection> findBySettlementItemId(Long settlementItemId);
 }

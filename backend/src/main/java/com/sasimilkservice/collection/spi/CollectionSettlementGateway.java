@@ -14,6 +14,9 @@ public interface CollectionSettlementGateway {
 
     List<SettlementCollectionRow> unsettledConfirmed(LocalDate periodStart, LocalDate periodEnd);
 
+    /** Collections in the period still recorded with litres only (FAT / SNF not yet entered). */
+    int pendingQualityCount(LocalDate periodStart, LocalDate periodEnd);
+
     void attachToSettlementItem(Collection<Long> collectionIds, long settlementItemId);
 
     void detachFromSettlement(long settlementItemId);

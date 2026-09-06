@@ -29,7 +29,7 @@ import java.util.UUID;
 @Setter
 public class MilkCollection extends AuditableEntity {
 
-    public enum Status { DRAFT, CONFIRMED, VOID }
+    public enum Status { DRAFT, CONFIRMED, VOID, PENDING_QUALITY }
 
     public enum Source { ONLINE, OFFLINE_SYNC, IMPORT }
 
@@ -57,10 +57,12 @@ public class MilkCollection extends AuditableEntity {
     @Column(name = "milk_quantity_litres", nullable = false)
     private BigDecimal milkQuantityLitres;
 
-    @Column(name = "fat_percentage", nullable = false)
+    /** Null until quality is entered (status PENDING_QUALITY). */
+    @Column(name = "fat_percentage")
     private BigDecimal fatPercentage;
 
-    @Column(name = "snf_percentage", nullable = false)
+    /** Null until quality is entered (status PENDING_QUALITY). */
+    @Column(name = "snf_percentage")
     private BigDecimal snfPercentage;
 
     @Column(name = "rate_chart_id")
@@ -113,4 +115,8 @@ public class MilkCollection extends AuditableEntity {
 
     @Column(name = "voided_by")
     private Long voidedBy;
+
+    public boolean isQualityPending() {
+        return status == Status.PENDING_QUALITY;
+    }
 }

@@ -24,8 +24,8 @@ public final class CollectionDtos {
             @NotNull @PastOrPresent LocalDate collectionDate,
             @NotNull Shift shift,
             @NotNull @DecimalMin(value = "0.0", inclusive = false) BigDecimal litres,
-            @NotNull @DecimalMin("0.0") BigDecimal fat,
-            @NotNull @DecimalMin("0.0") BigDecimal snf,
+            @DecimalMin("0.0") BigDecimal fat,
+            @DecimalMin("0.0") BigDecimal snf,
             MilkCollection.Source source,
             String deviceId) {
 
@@ -36,6 +36,12 @@ public final class CollectionDtos {
     }
 
     public record VoidCollectionRequest(@NotBlank String reason) {
+    }
+
+    /** Adds FAT / SNF to a collection recorded with litres only. */
+    public record UpdateQualityRequest(
+            @NotNull @DecimalMin(value = "0.0", inclusive = false) BigDecimal fat,
+            @NotNull @DecimalMin(value = "0.0", inclusive = false) BigDecimal snf) {
     }
 
     public record BreakdownResponse(
@@ -67,6 +73,7 @@ public final class CollectionDtos {
             BigDecimal fat,
             BigDecimal snf,
             String status,
+            boolean qualityPending,
             BreakdownResponse breakdown,
             boolean duplicate) {
 
@@ -76,7 +83,7 @@ public final class CollectionDtos {
                     c.getProducerId(), producerNumber, producerName,
                     c.getCollectionDate(), c.getShift(), c.getMilkQuantityLitres(),
                     c.getFatPercentage(), c.getSnfPercentage(), c.getStatus().name(),
-                    BreakdownResponse.from(c), duplicate);
+                    c.isQualityPending(), BreakdownResponse.from(c), duplicate);
         }
     }
 }

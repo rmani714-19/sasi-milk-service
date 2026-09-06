@@ -66,6 +66,7 @@ export interface Collection {
   fat: number;
   snf: number;
   status: string;
+  qualityPending?: boolean;
   breakdown: Breakdown;
   duplicate: boolean;
 }

@@ -155,6 +155,13 @@ public class SettlementService implements SettlementPayoutGateway {
             unwind(s); // recalculate: discard prior items and their links
         }
 
+        int pendingQuality = collections.pendingQualityCount(s.getPeriodStart(), s.getPeriodEnd());
+        if (pendingQuality > 0) {
+            throw new BusinessRuleException(pendingQuality + " collection(s) in "
+                    + s.getPeriodStart() + " to " + s.getPeriodEnd()
+                    + " still need FAT / SNF entered. Add the milk quality before calculating this run.");
+        }
+
         CenterSettings settings = centerService.settings();
         RoundingPolicy policy = settings.roundingPolicy();
         applyRoundingSnapshot(s, policy);

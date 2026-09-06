@@ -113,26 +113,13 @@ public class CollectionService implements CollectionSettlementGateway {
         }
 
         CenterSettings settings = centerService.settings();
-        if (!settings.fatInRange(cmd.fatPercentage())) {
-            throw new BusinessRuleException("FAT " + cmd.fatPercentage() + " is outside the allowed range");
-        }
-        if (!settings.snfInRange(cmd.snfPercentage())) {
-            throw new BusinessRuleException("SNF " + cmd.snfPercentage() + " is outside the allowed range");
-        }
         if (cmd.collectionDate().isAfter(LocalDate.now())) {
             throw new BusinessRuleException("Collection date cannot be in the future");
         }
 
-        ResolvedRate rate = rateResolution.resolve(new ResolveRateQuery(
-                producer.regionId(), cmd.collectionDate(),
-                cmd.fatPercentage(), cmd.snfPercentage(), settings.allowMissingRate()));
-
-        IncentiveResult incentive = incentiveCalculator.calculate(new IncentiveQuery(
-                producer.id(), producer.regionId(), cmd.collectionDate(), cmd.litres(),
-                settings.incentiveStacking(), settings.incentiveMaxPerLitre()));
-
-        var breakdown = amountCalculator.calculate(new CollectionAmountCalculator.CollectionAmountInput(
-                cmd.litres(), rate, incentive, BigDecimal.ZERO));
+        // Milk quantity is enough to record a collection; FAT / SNF (and therefore
+        // the rate and amount) can be added afterwards — see updateQuality().
+        boolean qualityPending = cmd.fatPercentage() == null || cmd.snfPercentage() == null;
 
         MilkCollection c = new MilkCollection();
         c.setClientTransactionId(clientTxnId);
@@ -142,19 +129,29 @@ public class CollectionService implements CollectionSettlementGateway {
         c.setCollectionDate(cmd.collectionDate());
         c.setShift(cmd.shift());
         c.setMilkQuantityLitres(cmd.litres());
-        c.setFatPercentage(cmd.fatPercentage());
-        c.setSnfPercentage(cmd.snfPercentage());
-        c.setRateChartId(rate.rateChartId());
-        c.setTsValueApplied(breakdown.tsValueApplied());
-        c.setRateScopeApplied(rate.scope().name());
-        c.setApplicableRate(breakdown.applicableRate());
-        c.setIncentiveRateApplied(breakdown.incentiveRateApplied());
-        c.setBaseAmount(breakdown.baseAmount());
-        c.setIncentiveAmount(breakdown.incentiveAmount());
-        c.setDeductionAmount(breakdown.deductionAmount());
-        c.setNetAmount(breakdown.netAmount());
         c.setSource(cmd.source() == null ? MilkCollection.Source.ONLINE : cmd.source());
-        c.setCalculationSnapshot(snapshot(cmd, producer, rate, incentive, breakdown));
+
+        if (qualityPending) {
+            c.setStatus(MilkCollection.Status.PENDING_QUALITY);
+            c.setTsValueApplied(BigDecimal.ZERO);
+            c.setApplicableRate(BigDecimal.ZERO);
+            c.setIncentiveRateApplied(BigDecimal.ZERO);
+            c.setBaseAmount(BigDecimal.ZERO);
+            c.setIncentiveAmount(BigDecimal.ZERO);
+            c.setDeductionAmount(BigDecimal.ZERO);
+            c.setNetAmount(BigDecimal.ZERO);
+            Map<String, Object> pendingSnap = new HashMap<>();
+            pendingSnap.put("engine", "collection-1.0.0");
+            pendingSnap.put("qualityPending", true);
+            pendingSnap.put("producerNumber", producer.producerNumber());
+            pendingSnap.put("regionId", producer.regionId());
+            pendingSnap.put("litres", cmd.litres());
+            c.setCalculationSnapshot(pendingSnap);
+        } else {
+            priceCollection(c, producer, settings, cmd.collectionDate(), cmd.litres(),
+                    cmd.fatPercentage(), cmd.snfPercentage());
+            c.setStatus(MilkCollection.Status.CONFIRMED);
+        }
 
         try {
             c = collections.saveAndFlush(c);
@@ -167,8 +164,91 @@ public class CollectionService implements CollectionSettlementGateway {
 
         writeSyncLog(cmd, clientTxnId, CollectionSyncLog.Outcome.APPLIED, c.getId(), null);
         audit.record("COLLECTION_CREATED", "MilkCollection", c.getId(),
-                "Collection " + c.getCollectionNumber() + " for producer " + producer.producerNumber());
+                "Collection " + c.getCollectionNumber() + " for producer " + producer.producerNumber()
+                        + (c.isQualityPending() ? " (quality pending)" : ""));
 
+        // The confirmation SMS carries the amount, so it is sent only once the
+        // amount is known — now, or later from updateQuality().
+        if (!c.isQualityPending()) {
+            publishCreatedNotification(c, producer);
+        }
+
+        return new RecordResult(c, false);
+    }
+
+    /**
+     * Add FAT / SNF to a collection that was recorded with litres only. The rate
+     * and amount are worked out now; the collection moves to CONFIRMED and the
+     * farmer's confirmation message goes out. Also used to correct the quality of
+     * a not-yet-settled collection.
+     */
+    @Transactional
+    public MilkCollection updateQuality(UUID publicId, BigDecimal fat, BigDecimal snf) {
+        MilkCollection c = requireByPublicId(publicId);
+        if (c.getStatus() == MilkCollection.Status.VOID) {
+            throw new BusinessRuleException("A voided collection cannot be updated");
+        }
+        if (c.getSettlementItemId() != null) {
+            throw new BusinessRuleException("This collection is already part of a settlement");
+        }
+        boolean wasPending = c.isQualityPending();
+        long producerId = c.getProducerId();
+        ProducerView producer = producers.findById(producerId)
+                .orElseThrow(() -> new NotFoundException("Producer " + producerId + " not found"));
+
+        priceCollection(c, producer, centerService.settings(), c.getCollectionDate(),
+                c.getMilkQuantityLitres(), fat, snf);
+        c.setStatus(MilkCollection.Status.CONFIRMED);
+        try {
+            collections.saveAndFlush(c);
+        } catch (DataIntegrityViolationException dup) {
+            throw new BusinessRuleException(
+                    "A confirmed collection already exists for this producer, date and shift");
+        }
+
+        audit.record("COLLECTION_QUALITY_UPDATED", "MilkCollection", c.getId(),
+                "Quality set for " + c.getCollectionNumber() + " (FAT " + fat + ", SNF " + snf + ")");
+        if (wasPending) {
+            publishCreatedNotification(c, producer);
+        }
+        return c;
+    }
+
+    /** Resolve the rate + incentive for the given quality and fill the amount fields on {@code c}. */
+    private void priceCollection(MilkCollection c, ProducerView producer, CenterSettings settings,
+                                 LocalDate date, BigDecimal litres, BigDecimal fat, BigDecimal snf) {
+        if (!settings.fatInRange(fat)) {
+            throw new BusinessRuleException("FAT " + fat + " is outside the allowed range");
+        }
+        if (!settings.snfInRange(snf)) {
+            throw new BusinessRuleException("SNF " + snf + " is outside the allowed range");
+        }
+
+        ResolvedRate rate = rateResolution.resolve(new ResolveRateQuery(
+                producer.regionId(), date, fat, snf, settings.allowMissingRate()));
+
+        IncentiveResult incentive = incentiveCalculator.calculate(new IncentiveQuery(
+                producer.id(), producer.regionId(), date, litres,
+                settings.incentiveStacking(), settings.incentiveMaxPerLitre()));
+
+        var breakdown = amountCalculator.calculate(new CollectionAmountCalculator.CollectionAmountInput(
+                litres, rate, incentive, BigDecimal.ZERO));
+
+        c.setFatPercentage(fat);
+        c.setSnfPercentage(snf);
+        c.setRateChartId(rate.rateChartId());
+        c.setTsValueApplied(breakdown.tsValueApplied());
+        c.setRateScopeApplied(rate.scope().name());
+        c.setApplicableRate(breakdown.applicableRate());
+        c.setIncentiveRateApplied(breakdown.incentiveRateApplied());
+        c.setBaseAmount(breakdown.baseAmount());
+        c.setIncentiveAmount(breakdown.incentiveAmount());
+        c.setDeductionAmount(breakdown.deductionAmount());
+        c.setNetAmount(breakdown.netAmount());
+        c.setCalculationSnapshot(snapshot(litres, fat, snf, producer, rate, incentive, breakdown));
+    }
+
+    private void publishCreatedNotification(MilkCollection c, ProducerView producer) {
         Map<String, Object> notifyData = new HashMap<>();
         notifyData.put("producerName", producer.name());
         notifyData.put("producerNumber", producer.producerNumber());
@@ -185,8 +265,6 @@ public class CollectionService implements CollectionSettlementGateway {
         notifyData.put("collectionNumber", c.getCollectionNumber());
         notifications.publish(new NotificationRequest("COLLECTION_CREATED", "COLLECTION_CREATED",
                 producer.id(), null, "MilkCollection", c.getId(), notifyData));
-
-        return new RecordResult(c, false);
     }
 
     @Transactional
@@ -208,6 +286,12 @@ public class CollectionService implements CollectionSettlementGateway {
     }
 
     // ---- CollectionSettlementGateway ----
+
+    @Override
+    public int pendingQualityCount(LocalDate periodStart, LocalDate periodEnd) {
+        return (int) collections.countByStatusAndCollectionDateBetween(
+                MilkCollection.Status.PENDING_QUALITY, periodStart, periodEnd);
+    }
 
     @Override
     public List<SettlementCollectionRow> unsettledConfirmed(LocalDate periodStart, LocalDate periodEnd) {
@@ -244,16 +328,16 @@ public class CollectionService implements CollectionSettlementGateway {
                 .toList();
     }
 
-    private Map<String, Object> snapshot(RecordCollectionCommand cmd, ProducerView producer,
-                                         ResolvedRate rate, IncentiveResult incentive,
+    private Map<String, Object> snapshot(BigDecimal litres, BigDecimal fat, BigDecimal snf,
+                                         ProducerView producer, ResolvedRate rate, IncentiveResult incentive,
                                          CollectionAmountCalculator.CollectionAmountBreakdown b) {
         Map<String, Object> s = new HashMap<>();
         s.put("engine", "collection-1.0.0");
         s.put("producerNumber", producer.producerNumber());
         s.put("regionId", producer.regionId());
-        s.put("litres", cmd.litres());
-        s.put("fat", cmd.fatPercentage());
-        s.put("snf", cmd.snfPercentage());
+        s.put("litres", litres);
+        s.put("fat", fat);
+        s.put("snf", snf);
         s.put("tsValue", b.tsValueApplied());
         s.put("rateScope", rate.scope().name());
         s.put("rateMissing", rate.missing());

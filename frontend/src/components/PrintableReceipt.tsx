@@ -60,19 +60,32 @@ export function PrintableReceipt({
             />
             <div className="hr" />
             <R k="Milk (litres)" v={qty(collection.litres)} />
-            <R k="FAT %" v={qty(collection.fat)} />
-            <R k="SNF %" v={qty(collection.snf)} />
-            <R k="Rate / litre" v={rate(collection.breakdown.ratePerLitre)} />
-            <div className="hr" />
-            <R k="Milk amount" v={money(collection.breakdown.baseAmount)} />
-            <R k="Incentive" v={money(collection.breakdown.incentiveAmount)} />
-            <R k="Deduction" v={money(collection.breakdown.deductionAmount)} />
-            <div className="hr" />
-            <div className="row total">
-              <span>NET AMOUNT</span>
-              <span>{money(collection.breakdown.netAmount)}</span>
-            </div>
-            <div className="hr" />
+            {collection.status === 'PENDING_QUALITY' ? (
+              <>
+                <div className="hr" />
+                <div className="row total">
+                  <span>QUALITY &amp; AMOUNT</span>
+                  <span>PENDING</span>
+                </div>
+                <div className="hr" />
+              </>
+            ) : (
+              <>
+                <R k="FAT %" v={qty(collection.fat)} />
+                <R k="SNF %" v={qty(collection.snf)} />
+                <R k="Rate / litre" v={rate(collection.breakdown.ratePerLitre)} />
+                <div className="hr" />
+                <R k="Milk amount" v={money(collection.breakdown.baseAmount)} />
+                <R k="Incentive" v={money(collection.breakdown.incentiveAmount)} />
+                <R k="Deduction" v={money(collection.breakdown.deductionAmount)} />
+                <div className="hr" />
+                <div className="row total">
+                  <span>NET AMOUNT</span>
+                  <span>{money(collection.breakdown.netAmount)}</span>
+                </div>
+                <div className="hr" />
+              </>
+            )}
             <div className="foot">
               Printed {new Date().toLocaleString('en-IN')}
               <br />

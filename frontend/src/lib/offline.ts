@@ -7,8 +7,9 @@ export interface PendingCollection {
   collectionDate: string;
   shift: 'MORNING' | 'EVENING';
   litres: number;
-  fat: number;
-  snf: number;
+  /** FAT / SNF are optional — a collection can be queued with litres only and priced later. */
+  fat?: number;
+  snf?: number;
   source: 'OFFLINE_SYNC';
   /** scale identifier when the quantity came from the weighing machine */
   deviceId?: string;
@@ -59,8 +60,7 @@ export async function syncPending(): Promise<{ synced: number; failed: number }>
         collectionDate: p.collectionDate,
         shift: p.shift,
         litres: p.litres,
-        fat: p.fat,
-        snf: p.snf,
+        ...(p.fat != null && p.snf != null ? { fat: p.fat, snf: p.snf } : {}),
         source: 'OFFLINE_SYNC',
         ...(p.deviceId ? { deviceId: p.deviceId } : {}),
       });

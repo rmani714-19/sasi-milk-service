@@ -31,6 +31,7 @@ export function statusTone(status: string | null | undefined): StatusTone {
     case 'DUE':
     case 'CALCULATED':
     case 'PENDING_VERIFICATION':
+    case 'PENDING_QUALITY':
       return 'pending';
     case 'FAILED':
     case 'CANCELLED':

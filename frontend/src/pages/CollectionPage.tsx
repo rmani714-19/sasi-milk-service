@@ -12,6 +12,10 @@ import Button from '@mui/material/Button';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
 import Grid from '@mui/material/Grid2';
 import InputAdornment from '@mui/material/InputAdornment';
 import LinearProgress from '@mui/material/LinearProgress';
@@ -102,6 +106,7 @@ export function CollectionPage() {
   const [lastSaved, setLastSaved] = useState<Collection | null>(null);
   const [receiptFor, setReceiptFor] = useState<Collection | null>(null);
   const [recentProducers, setRecentProducers] = useState<Producer[]>([]);
+  const [qualityTarget, setQualityTarget] = useState<Collection | null>(null);
 
   // scale / entry mode
   const [mode, setMode] = useState<CollectionMode>(readMode);
@@ -254,6 +259,10 @@ export function CollectionPage() {
     else toast.error(r.instruction ?? 'Press the ZERO / TARE button on the scale');
   }
 
+  // FAT / SNF are optional at capture — milk quantity is enough to record a
+  // collection; quality (and therefore the rate + amount) can be added later.
+  const qualityTouched = fat.trim() !== '' || snf.trim() !== '';
+  const qualityComplete = Number(fat) > 0 && Number(snf) > 0;
   const errors = {
     producer: !producer && !(notFound && ref.trim()) ? 'Scan or pick a producer' : '',
     litres:
@@ -262,10 +271,9 @@ export function CollectionPage() {
         : mode === 'AUTO'
           ? 'Waiting for a stable weight from the scale'
           : 'Enter litres',
-    fat: Number(fat) > 0 ? '' : 'Enter FAT %',
-    snf: Number(snf) > 0 ? '' : 'Enter SNF %',
+    quality: qualityTouched && !qualityComplete ? 'Enter both FAT and SNF, or leave both blank to add later' : '',
   };
-  const canSave = !errors.producer && !errors.litres && !errors.fat && !errors.snf;
+  const canSave = !errors.producer && !errors.litres && !errors.quality;
   const showErr = (k: keyof typeof errors) => (triedSave ? errors[k] : '');
 
   function resetEntry(keepProducer: boolean) {
@@ -295,14 +303,17 @@ export function CollectionPage() {
       collectionDate: date,
       shift,
       litres: Number(litres),
-      fat: Number(fat),
-      snf: Number(snf),
+      ...(qualityComplete ? { fat: Number(fat), snf: Number(snf) } : {}),
       ...(entryMode === 'AUTO' ? { deviceId: SCALE_ID } : {}),
     };
     try {
       if (!navigator.onLine) throw new Error('offline');
       const { data } = await api.post<Collection>('/collections', payload);
-      toast.success(`${data.collectionNumber} · ${fmtL(data.litres)} · ${money(data.breakdown.netAmount)}`);
+      toast.success(
+        `${data.collectionNumber} · ${fmtL(data.litres)} · ${
+          data.qualityPending ? 'quality pending' : money(data.breakdown.netAmount)
+        }`,
+      );
       setLastSaved(data);
       setEntryModeById((m) => ({ ...m, [data.collectionNumber]: entryMode }));
       qc.invalidateQueries({ queryKey: ['collections'] });
@@ -350,6 +361,15 @@ export function CollectionPage() {
   return (
     <>
       <PrintableReceipt collection={receiptFor} centerName={centerName} centerAddress={centerAddress} />
+
+      <QualityDialog
+        collection={qualityTarget}
+        onClose={() => setQualityTarget(null)}
+        onSaved={() => {
+          qc.invalidateQueries({ queryKey: ['collections'] });
+          setQualityTarget(null);
+        }}
+      />
 
       {/* ---------- compact header ---------- */}
       <Stack
@@ -544,7 +564,7 @@ export function CollectionPage() {
                 )}
                 <Grid size={{ xs: 6, sm: mode === 'MANUAL' ? 3 : 6 }}>
                   <TextField
-                    label="FAT"
+                    label="FAT (optional)"
                     type="number"
                     value={fat}
                     onChange={(e) => setFat(e.target.value)}
@@ -554,8 +574,8 @@ export function CollectionPage() {
                         snfRef.current?.focus();
                       }
                     }}
-                    error={!!showErr('fat')}
-                    helperText={showErr('fat')}
+                    error={!!showErr('quality')}
+                    helperText={showErr('quality') || 'Add now or later'}
                     inputRef={fatRef}
                     inputProps={{ step: '0.1', min: '0', inputMode: 'decimal', sx: { fontSize: 20, fontWeight: 700, py: 1.25 } }}
                     InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
@@ -563,7 +583,7 @@ export function CollectionPage() {
                 </Grid>
                 <Grid size={{ xs: 6, sm: mode === 'MANUAL' ? 3 : 6 }}>
                   <TextField
-                    label="SNF"
+                    label="SNF (optional)"
                     type="number"
                     value={snf}
                     onChange={(e) => setSnf(e.target.value)}
@@ -573,8 +593,8 @@ export function CollectionPage() {
                         save();
                       }
                     }}
-                    error={!!showErr('snf')}
-                    helperText={showErr('snf')}
+                    error={!!showErr('quality')}
+                    helperText={showErr('quality') || 'Rate is worked out once both are entered'}
                     inputRef={snfRef}
                     inputProps={{ step: '0.1', min: '0', inputMode: 'decimal', sx: { fontSize: 20, fontWeight: 700, py: 1.25 } }}
                     InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
@@ -606,8 +626,16 @@ export function CollectionPage() {
                       Saved · {lastSaved.collectionNumber}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {fmtL(lastSaved.litres)} @ {fmtRate(lastSaved.breakdown.ratePerLitre)} · Net{' '}
-                      <b>{money(lastSaved.breakdown.netAmount)}</b>
+                      {lastSaved.qualityPending ? (
+                        <>
+                          {fmtL(lastSaved.litres)} · <b>quality pending</b> — add FAT/SNF from the list below
+                        </>
+                      ) : (
+                        <>
+                          {fmtL(lastSaved.litres)} @ {fmtRate(lastSaved.breakdown.ratePerLitre)} · Net{' '}
+                          <b>{money(lastSaved.breakdown.netAmount)}</b>
+                        </>
+                      )}
                     </Typography>
                   </Box>
                 </Stack>
@@ -616,7 +644,7 @@ export function CollectionPage() {
                 </Button>
               </Box>
             ) : (
-              <AmountSummary preview={preview} estBase={estBase} />
+              <AmountSummary preview={preview} estBase={estBase} qualityPending={!qualityComplete} />
             )}
 
             {/* actions */}
@@ -720,11 +748,11 @@ export function CollectionPage() {
                     <Chip size="small" variant="outlined" label={c.shift === 'MORNING' ? 'AM' : 'PM'} />
                   </TableCell>
                   <TableCell align="right">{fmtL(c.litres)}</TableCell>
-                  <TableCell align="right">{Number(c.fat).toFixed(1)}</TableCell>
-                  <TableCell align="right">{Number(c.snf).toFixed(1)}</TableCell>
-                  <TableCell align="right">{fmtRate(c.breakdown.ratePerLitre)}</TableCell>
+                  <TableCell align="right">{c.qualityPending ? '—' : Number(c.fat).toFixed(1)}</TableCell>
+                  <TableCell align="right">{c.qualityPending ? '—' : Number(c.snf).toFixed(1)}</TableCell>
+                  <TableCell align="right">{c.qualityPending ? '—' : fmtRate(c.breakdown.ratePerLitre)}</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 700 }}>
-                    {money(c.breakdown.netAmount)}
+                    {c.qualityPending ? '—' : money(c.breakdown.netAmount)}
                   </TableCell>
                   <TableCell>
                     {entryModeById[c.collectionNumber] ? (
@@ -744,11 +772,18 @@ export function CollectionPage() {
                     <StatusChip status={c.status} />
                   </TableCell>
                   <TableCell align="right" padding="none">
-                    <Tooltip title="Print receipt">
-                      <IconButton size="small" onClick={() => print(c)}>
-                        <PrintIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                    <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
+                      {c.qualityPending && c.status !== 'VOID' && (
+                        <Button size="small" variant="outlined" onClick={() => setQualityTarget(c)}>
+                          Add quality
+                        </Button>
+                      )}
+                      <Tooltip title="Print receipt">
+                        <IconButton size="small" onClick={() => print(c)}>
+                          <PrintIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ))}
@@ -890,7 +925,15 @@ function ReadOut({ label, value, warn }: { label: string; value: ReactNode; warn
   );
 }
 
-function AmountSummary({ preview, estBase }: { preview: RatePreview | null; estBase: number | null }) {
+function AmountSummary({
+  preview,
+  estBase,
+  qualityPending,
+}: {
+  preview: RatePreview | null;
+  estBase: number | null;
+  qualityPending?: boolean;
+}) {
   return (
     <Box sx={{ bgcolor: 'primary.light', borderRadius: 2, p: 2 }}>
       <Stack
@@ -910,7 +953,7 @@ function AmountSummary({ preview, estBase }: { preview: RatePreview | null; estB
             Estimated net {preview && <Chip label={preview.scope} size="small" variant="outlined" sx={{ ml: 0.5 }} />}
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-            incentive &amp; deduction are applied on save
+            {qualityPending ? 'rate & amount are worked out once FAT / SNF are added' : 'incentive & deduction are applied on save'}
           </Typography>
         </Box>
         <Typography sx={{ fontSize: 30, fontWeight: 800 }} color="primary.dark">
@@ -1013,5 +1056,90 @@ function ProducerSelector({
         </Stack>
       )}
     </Box>
+  );
+}
+
+/* -------- add FAT / SNF to a litres-only collection -------- */
+function QualityDialog({
+  collection,
+  onClose,
+  onSaved,
+}: {
+  collection: Collection | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [fat, setFat] = useState('');
+  const [snf, setSnf] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setFat('');
+    setSnf('');
+  }, [collection]);
+
+  const valid = Number(fat) > 0 && Number(snf) > 0;
+
+  async function submit() {
+    if (!collection || !valid || saving) return;
+    setSaving(true);
+    try {
+      await api.patch(`/collections/${collection.id}/quality`, { fat: Number(fat), snf: Number(snf) });
+      toast.success(`${collection.collectionNumber} · quality added`);
+      onSaved();
+    } catch (err) {
+      toast.fromError(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={!!collection} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>Add milk quality</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          {collection && (
+            <Typography variant="body2" color="text.secondary">
+              {collection.collectionNumber} · {collection.producerName ?? `#${collection.producerId}`} ·{' '}
+              {fmtL(collection.litres)}
+            </Typography>
+          )}
+          <TextField
+            label="FAT"
+            type="number"
+            value={fat}
+            onChange={(e) => setFat(e.target.value)}
+            autoFocus
+            inputProps={{ step: '0.1', min: '0', inputMode: 'decimal' }}
+            InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
+          />
+          <TextField
+            label="SNF"
+            type="number"
+            value={snf}
+            onChange={(e) => setSnf(e.target.value)}
+            onKeyDown={(e) => {
+              if (isEnter(e)) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            inputProps={{ step: '0.1', min: '0', inputMode: 'decimal' }}
+            InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            The rate and amount are worked out now, and the farmer's confirmation message is sent.
+          </Typography>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" disabled={!valid || saving} onClick={submit}>
+          {saving ? 'Saving…' : 'Save quality'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
