@@ -156,7 +156,8 @@ public class DriverSalaryController {
                                                      @Valid @RequestBody BankBalanceRequest r) {
         DriverSalaryBatch b = service.require(id);
         return BankBalanceCheckResponse.from(paymentOps.record(SubjectType.SALARY_BATCH, id,
-                r.bankAccountLabel(), r.availableBalance(), b.getTotalNet(), r.method(), r.note()));
+                r.centerBankAccountId(), r.bankAccountLabel(), r.availableBalance(),
+                b.getTotalNet(), r.method(), r.note()));
     }
 
     @GetMapping("/{id}/pre-validation")

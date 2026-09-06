@@ -20,9 +20,19 @@ import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlin
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { money } from '../lib/format';
+import { Link as RouterLink } from 'react-router-dom';
 import { StatusChip } from './StatusChip';
 import { useToast } from './ui';
-import type { BankBalanceCheck, CenterSettings, PreValidationReport } from '../api/types';
+import type { BankBalanceCheck, CenterBankAccount, PreValidationReport } from '../api/types';
+
+interface PickableAccount {
+  id: number;
+  label: string;
+}
+
+function accountLabel(a: CenterBankAccount): string {
+  return `${a.label ? a.label + ' · ' : ''}${a.bankName} ${a.accountNumberMasked}`;
+}
 
 /* -------------------------------------------------------- bank balance */
 
@@ -52,16 +62,17 @@ export function BankBalanceCard({
     if (onChange) onChange(q.data ?? null);
   }, [q.data, onChange]);
 
-  // The centre's own payout account, configured once in Center settings — reused here
-  // so no one has to retype a free-text bank-account label on every payment run.
-  const center = useQuery({
-    queryKey: ['center'],
-    queryFn: async () => (await api.get<CenterSettings>('/center')).data,
+  // The centre's own bank accounts. Only verified, active ones can be paid from —
+  // the operator picks which account this balance check is for.
+  const centerAccounts = useQuery({
+    queryKey: ['center-bank-accounts'],
+    queryFn: async () => (await api.get<CenterBankAccount[]>('/center/bank-accounts')).data,
   });
-  const configuredLabel =
-    center.data?.payoutAccountComplete && center.data.payoutBankName && center.data.payoutAccountNumberMasked
-      ? `${center.data.payoutBankName} ${center.data.payoutAccountNumberMasked}`
-      : undefined;
+  const pickable: PickableAccount[] = (centerAccounts.data ?? [])
+    .filter((a) => a.status === 'ACTIVE' && a.verified)
+    .map((a) => ({ id: a.id, label: accountLabel(a) }));
+  const primaryId =
+    (centerAccounts.data ?? []).find((a) => a.primary && a.status === 'ACTIVE' && a.verified)?.id ?? pickable[0]?.id;
 
   const save = useMutation({
     mutationFn: async (body: Record<string, unknown>) => (await api.post(`${base}/bank-balance`, body)).data,
@@ -109,10 +120,16 @@ export function BankBalanceCard({
           </Alert>
         )}
 
-        {canVerify && (
+        {canVerify && pickable.length > 0 && (
           <Button size="small" variant={c ? 'text' : 'contained'} sx={{ mt: 1.5 }} onClick={() => setOpen(true)}>
             {c ? 'Re-verify balance' : 'Verify bank balance'}
           </Button>
+        )}
+        {canVerify && !centerAccounts.isLoading && pickable.length === 0 && (
+          <Alert severity="warning" sx={{ mt: 1.5 }}>
+            No verified business bank account.{' '}
+            <RouterLink to="/center">Add and verify one in My Center</RouterLink> before recording a balance.
+          </Alert>
         )}
       </CardContent>
 
@@ -120,7 +137,8 @@ export function BankBalanceCard({
         open={open}
         requiredAmount={requiredAmount}
         busy={save.isPending}
-        configuredLabel={configuredLabel}
+        accounts={pickable}
+        defaultAccountId={primaryId}
         onClose={() => setOpen(false)}
         onSave={(body) => save.mutate(body)}
       />
@@ -145,33 +163,34 @@ function BalanceDialog({
   open,
   requiredAmount,
   busy,
-  configuredLabel,
+  accounts,
+  defaultAccountId,
   onClose,
   onSave,
 }: {
   open: boolean;
   requiredAmount: number;
   busy: boolean;
-  configuredLabel?: string;
+  accounts: PickableAccount[];
+  defaultAccountId?: number;
   onClose: () => void;
   onSave: (body: Record<string, unknown>) => void;
 }) {
-  const [label, setLabel] = useState('');
+  const [accountId, setAccountId] = useState<number | ''>('');
   const [balance, setBalance] = useState('');
   const [method, setMethod] = useState('MANUAL');
   const [note, setNote] = useState('');
   useEffect(() => {
     if (open) {
-      setLabel('');
+      setAccountId(defaultAccountId ?? (accounts.length === 1 ? accounts[0].id : ''));
       setBalance('');
       setMethod('MANUAL');
       setNote('');
     }
-  }, [open]);
+  }, [open, defaultAccountId, accounts]);
   const num = Number(balance);
   const remaining = num - requiredAmount;
-  const effectiveLabel = configuredLabel || label.trim();
-  const valid = !!effectiveLabel && balance !== '' && num >= 0 && !Number.isNaN(num);
+  const valid = accountId !== '' && balance !== '' && num >= 0 && !Number.isNaN(num);
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
       <DialogTitle>Verify bank balance</DialogTitle>
@@ -180,27 +199,21 @@ function BalanceDialog({
           <Typography variant="body2" color="text.secondary">
             Batch amount to pay: <b>{money(requiredAmount)}</b>
           </Typography>
-          {configuredLabel ? (
-            <Box>
-              <Typography variant="caption" color="text.secondary" display="block">
-                Bank account
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                {configuredLabel}
-              </Typography>
-            </Box>
-          ) : (
-            <TextField
-              label="Bank account"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. SASI Dairy Current A/c ****4432"
-              helperText="Not configured yet — set this once in Centre settings to skip typing it every run."
-              autoFocus
-            />
-          )}
           <TextField
-            label="Available balance"
+            select
+            label="Pay from account"
+            value={accountId === '' ? '' : String(accountId)}
+            onChange={(e) => setAccountId(e.target.value === '' ? '' : Number(e.target.value))}
+            helperText="Only verified, active accounts from My Center are listed"
+          >
+            {accounts.map((a) => (
+              <MenuItem key={a.id} value={String(a.id)}>
+                {a.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            label="Available balance in this account"
             type="number"
             value={balance}
             onChange={(e) => setBalance(e.target.value)}
@@ -223,7 +236,14 @@ function BalanceDialog({
         <Button
           variant="contained"
           disabled={busy || !valid}
-          onClick={() => onSave({ bankAccountLabel: effectiveLabel, availableBalance: num, method, note: note.trim() || undefined })}
+          onClick={() =>
+            onSave({
+              centerBankAccountId: accountId,
+              availableBalance: num,
+              method,
+              note: note.trim() || undefined,
+            })
+          }
         >
           {busy ? 'Saving…' : 'Record balance'}
         </Button>

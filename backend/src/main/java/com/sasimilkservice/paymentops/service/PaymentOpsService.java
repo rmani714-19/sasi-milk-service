@@ -1,6 +1,7 @@
 package com.sasimilkservice.paymentops.service;
 
 import com.sasimilkservice.audit.spi.AuditRecorder;
+import com.sasimilkservice.center.spi.BusinessBankAccountDirectory;
 import com.sasimilkservice.common.error.BusinessRuleException;
 import com.sasimilkservice.common.money.MoneyMath;
 import com.sasimilkservice.common.security.CurrentUser;
@@ -18,17 +19,20 @@ import java.util.Optional;
 /**
  * Records and reads the owner bank-balance verification that gates approval of a
  * payment batch. The balance is never invented — it is entered by authorized
- * staff (or, when available, taken from a bank integration).
+ * staff for a chosen (verified) centre bank account.
  */
 @Service
 @Transactional(readOnly = true)
 public class PaymentOpsService {
 
     private final BankBalanceCheckRepository checks;
+    private final BusinessBankAccountDirectory bankAccounts;
     private final AuditRecorder audit;
 
-    public PaymentOpsService(BankBalanceCheckRepository checks, AuditRecorder audit) {
+    public PaymentOpsService(BankBalanceCheckRepository checks, BusinessBankAccountDirectory bankAccounts,
+                             AuditRecorder audit) {
         this.checks = checks;
+        this.bankAccounts = bankAccounts;
         this.audit = audit;
     }
 
@@ -45,11 +49,18 @@ public class PaymentOpsService {
     }
 
     @Transactional
-    public BankBalanceCheck record(SubjectType type, long subjectId, String bankAccountLabel,
-                                   BigDecimal availableBalance, BigDecimal requiredAmount,
-                                   Method method, String note) {
-        if (bankAccountLabel == null || bankAccountLabel.isBlank()) {
-            throw new BusinessRuleException("Bank account is required");
+    public BankBalanceCheck record(SubjectType type, long subjectId, Long centerBankAccountId,
+                                   String bankAccountLabel, BigDecimal availableBalance,
+                                   BigDecimal requiredAmount, Method method, String note) {
+        String label = bankAccountLabel == null ? null : bankAccountLabel.trim();
+        if (centerBankAccountId != null) {
+            BusinessBankAccountDirectory.UsableAccount acc = bankAccounts.usable(centerBankAccountId)
+                    .orElseThrow(() -> new BusinessRuleException(
+                            "Selected bank account is not available — it must be an active, verified account"));
+            label = acc.label();
+        }
+        if (label == null || label.isBlank()) {
+            throw new BusinessRuleException("Select the bank account you are paying from");
         }
         if (availableBalance == null || availableBalance.signum() < 0) {
             throw new BusinessRuleException("Enter the available bank balance");
@@ -61,7 +72,8 @@ public class PaymentOpsService {
         BankBalanceCheck c = new BankBalanceCheck();
         c.setSubjectType(type);
         c.setSubjectId(subjectId);
-        c.setBankAccountLabel(bankAccountLabel.trim());
+        c.setCenterBankAccountId(centerBankAccountId);
+        c.setBankAccountLabel(label);
         c.setAvailableBalance(available);
         c.setRequiredAmount(required);
         c.setRemainingAfter(remaining);

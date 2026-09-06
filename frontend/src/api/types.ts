@@ -320,20 +320,19 @@ export interface CenterSettings {
   fatMax: number;
   snfMin: number;
   snfMax: number;
-  payoutAccountHolderName?: string;
-  payoutAccountNumberMasked?: string;
-  payoutIfsc?: string;
-  payoutBankName?: string;
-  payoutAccountComplete: boolean;
-  payoutAccountUpdatedAt?: string;
 }
 
-export interface PayoutAccountDetails {
+export interface CenterBankAccount {
+  id: number;
   accountHolderName: string;
-  accountNumber: string;
+  accountNumberMasked: string;
   ifsc: string;
   bankName: string;
-  updatedAt?: string;
+  label?: string;
+  status: 'ACTIVE' | 'INACTIVE';
+  verified: boolean;
+  primary: boolean;
+  verifiedAt?: string;
 }
 
 export type IncentiveTarget = 'PRODUCER' | 'MEDIATOR';
@@ -370,6 +369,7 @@ export interface Incentive {
 
 export interface BankBalanceCheck {
   id: number;
+  centerBankAccountId?: number;
   bankAccountLabel: string;
   availableBalance: number;
   requiredAmount: number;

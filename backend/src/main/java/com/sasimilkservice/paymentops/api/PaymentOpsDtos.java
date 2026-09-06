@@ -3,7 +3,6 @@ package com.sasimilkservice.paymentops.api;
 import com.sasimilkservice.paymentops.domain.BankBalanceCheck;
 import com.sasimilkservice.paymentops.service.PreValidation;
 import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
@@ -16,7 +15,8 @@ public final class PaymentOpsDtos {
     private PaymentOpsDtos() {}
 
     public record BankBalanceRequest(
-            @NotBlank String bankAccountLabel,
+            Long centerBankAccountId,
+            String bankAccountLabel,
             @NotNull @DecimalMin("0.0") BigDecimal availableBalance,
             BankBalanceCheck.Method method,
             String note) {
@@ -24,6 +24,7 @@ public final class PaymentOpsDtos {
 
     public record BankBalanceCheckResponse(
             Long id,
+            Long centerBankAccountId,
             String bankAccountLabel,
             BigDecimal availableBalance,
             BigDecimal requiredAmount,
@@ -35,9 +36,9 @@ public final class PaymentOpsDtos {
             Instant verifiedAt) {
 
         public static BankBalanceCheckResponse from(BankBalanceCheck c) {
-            return new BankBalanceCheckResponse(c.getId(), c.getBankAccountLabel(), c.getAvailableBalance(),
-                    c.getRequiredAmount(), c.getRemainingAfter(), c.isSufficient(), c.getMethod().name(),
-                    c.getNote(), c.getVerifiedBy(), c.getVerifiedAt());
+            return new BankBalanceCheckResponse(c.getId(), c.getCenterBankAccountId(), c.getBankAccountLabel(),
+                    c.getAvailableBalance(), c.getRequiredAmount(), c.getRemainingAfter(), c.isSufficient(),
+                    c.getMethod().name(), c.getNote(), c.getVerifiedBy(), c.getVerifiedAt());
         }
     }
 

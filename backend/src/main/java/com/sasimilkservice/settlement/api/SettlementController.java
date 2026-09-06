@@ -127,7 +127,8 @@ public class SettlementController {
                                                      @Valid @RequestBody BankBalanceRequest r) {
         Settlement s = service.require(id);
         return BankBalanceCheckResponse.from(paymentOps.record(SubjectType.SETTLEMENT, id,
-                r.bankAccountLabel(), r.availableBalance(), s.getTotalNetPayable(), r.method(), r.note()));
+                r.centerBankAccountId(), r.bankAccountLabel(), r.availableBalance(),
+                s.getTotalNetPayable(), r.method(), r.note()));
     }
 
     @GetMapping("/{id}/pre-validation")

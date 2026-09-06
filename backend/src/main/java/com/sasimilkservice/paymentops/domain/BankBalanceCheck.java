@@ -34,6 +34,10 @@ public class BankBalanceCheck extends AuditableEntity {
     @Column(name = "subject_id", nullable = false)
     private Long subjectId;
 
+    /** The centre bank account the operator recorded this balance for (null for legacy free-text checks). */
+    @Column(name = "center_bank_account_id")
+    private Long centerBankAccountId;
+
     @Column(name = "bank_account_label", nullable = false)
     private String bankAccountLabel;
 
