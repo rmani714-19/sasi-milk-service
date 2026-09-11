@@ -43,6 +43,8 @@ import NotificationsNoneOutlinedIcon from '@mui/icons-material/NotificationsNone
 import BadgeOutlinedIcon from '@mui/icons-material/BadgeOutlined';
 import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
 import SummarizeOutlinedIcon from '@mui/icons-material/SummarizeOutlined';
+import MyLocationOutlinedIcon from '@mui/icons-material/MyLocationOutlined';
+import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import { useAuth } from '../lib/auth';
 import { useAppTheme } from '../lib/appTheme';
 import { usePendingSync } from '../lib/usePendingSync';
@@ -77,7 +79,11 @@ const NAV: NavItem[] = [
   { section: 'Payments', to: '/payments/reports', label: 'Payment Reports', icon: <SummarizeOutlinedIcon />, perm: 'VIEW_REPORTS' },
 
   { section: 'Insights', to: '/reports', label: 'Reports', icon: <AssessmentOutlinedIcon />, perm: 'VIEW_REPORTS' },
-  { section: 'Insights', to: '/vehicles', label: 'Vehicles', icon: <LocalShippingOutlinedIcon />, perm: 'VIEW_DASHBOARD' },
+
+  { section: 'Vehicles', to: '/vehicles', label: 'Vehicle Master', icon: <LocalShippingOutlinedIcon />, perm: 'VIEW_VEHICLES' },
+  { section: 'Vehicles', to: '/vehicles/tracking', label: 'Live Tracking', icon: <MyLocationOutlinedIcon />, perm: 'VIEW_LIVE_LOCATION' },
+  { section: 'Vehicles', to: '/vehicles/alerts', label: 'Alerts', icon: <WarningAmberOutlinedIcon />, perm: 'VIEW_ALERTS' },
+
   { section: 'Insights', to: '/center', label: 'My Center', icon: <BusinessOutlinedIcon />, perm: 'MANAGE_RATES' },
   { section: 'Insights', to: '/notifications', label: 'Notifications', icon: <NotificationsNoneOutlinedIcon />, perm: 'ALL' },
 ];

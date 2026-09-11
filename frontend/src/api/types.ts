@@ -254,13 +254,25 @@ export interface SalaryBatchDetail extends SalaryBatchSummary {
   items: SalaryItem[];
 }
 
+export type VehicleType = 'CAR' | 'VAN' | 'MINI_TRUCK' | 'TRUCK' | 'OTHER';
+export type VehicleLifecycleStatus = 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
+
 export interface Vehicle {
   id: number;
   code: string;
-  registrationNumber: string;
+  vehicleNumber: string;
+  vehicleType: VehicleType;
+  make?: string;
+  model?: string;
+  modelYear?: number;
+  driverId?: number;
   description?: string;
   capacityLitres?: number;
-  status: string;
+  registrationDate?: string;
+  insuranceExpiry?: string;
+  pollutionExpiry?: string;
+  notes?: string;
+  status: VehicleLifecycleStatus;
 }
 
 export interface VehicleStatus {
@@ -272,6 +284,147 @@ export interface VehicleStatus {
   longitude?: number;
   speedKmph?: number;
   lastFixAt?: string;
+}
+
+export interface VehicleDriverAssignment {
+  id: number;
+  vehicleId: number;
+  driverId: number;
+  assignedFrom: string;
+  assignedTo?: string;
+  assignedBy?: number;
+  remarks?: string;
+  createdAt: string;
+}
+
+export type VehicleDeviceType = 'GPS' | 'GPS_CAMERA' | 'DASHCAM' | 'MDVR' | 'OTHER';
+export type VehicleDeviceStatus = 'ACTIVE' | 'INACTIVE' | 'REMOVED' | 'FAULTY';
+
+export interface VehicleDevice {
+  id: number;
+  vehicleId?: number;
+  deviceType: VehicleDeviceType;
+  provider?: string;
+  externalDeviceId: string;
+  deviceModel?: string;
+  imei?: string;
+  serialNumber?: string;
+  simNumberMasked?: string;
+  firmwareVersion?: string;
+  installationDate?: string;
+  removedDate?: string;
+  primary: boolean;
+  lastSeenAt?: string;
+  status: VehicleDeviceStatus;
+}
+
+export interface VehicleDeviceAssignment {
+  id: number;
+  vehicleId: number;
+  deviceId: number;
+  assignedFrom: string;
+  assignedTo?: string;
+  assignedBy?: number;
+  removedBy?: number;
+  remarks?: string;
+  createdAt: string;
+}
+
+export interface VehicleLocationPoint {
+  vehicleId: number;
+  deviceId?: number;
+  latitude: number;
+  longitude: number;
+  speedKmph?: number;
+  directionDegrees?: number;
+  altitude?: number;
+  ignitionStatus?: 'ON' | 'OFF' | 'UNKNOWN';
+  motionStatus?: 'MOVING' | 'IDLE' | 'STOPPED' | 'UNKNOWN';
+  gpsAccuracy?: number;
+  providerTimestamp: string;
+  receivedAt: string;
+}
+
+export interface VehicleTrip {
+  id: number;
+  vehicleId: number;
+  deviceId?: number;
+  driverId?: number;
+  startedAt: string;
+  endedAt?: string;
+  startLatitude?: number;
+  startLongitude?: number;
+  endLatitude?: number;
+  endLongitude?: number;
+  distanceKm?: number;
+  durationSeconds?: number;
+  maxSpeedKmph?: number;
+  averageSpeedKmph?: number;
+  status: 'ONGOING' | 'COMPLETED' | 'UNKNOWN';
+}
+
+export type VehicleCameraType = 'FRONT' | 'CABIN' | 'REAR' | 'SIDE' | 'OTHER';
+
+export interface VehicleCamera {
+  id: number;
+  vehicleId: number;
+  deviceId: number;
+  cameraType: VehicleCameraType;
+  cameraChannel?: number;
+  cameraName?: string;
+  status: 'ACTIVE' | 'INACTIVE' | 'FAULTY';
+}
+
+export interface LiveStreamInfo {
+  available: boolean;
+  protocol?: string;
+  url?: string;
+  expiresAt?: string;
+}
+
+export interface PlaybackInfo {
+  available: boolean;
+  protocol?: string;
+  url?: string;
+  expiresAt?: string;
+}
+
+export interface VehicleRecording {
+  recordingId: string;
+  startedAt: string;
+  endedAt?: string;
+  protocol?: string;
+}
+
+export type VehicleAlertType =
+  | 'OVERSPEED'
+  | 'DEVICE_OFFLINE'
+  | 'IGNITION_ON'
+  | 'IGNITION_OFF'
+  | 'HARSH_BRAKING'
+  | 'HARSH_ACCELERATION'
+  | 'GEOFENCE_ENTRY'
+  | 'GEOFENCE_EXIT'
+  | 'CAMERA_OFFLINE'
+  | 'DEVICE_TAMPER'
+  | 'ACCIDENT'
+  | 'OTHER';
+
+export interface VehicleAlert {
+  id: number;
+  vehicleId: number;
+  deviceId?: number;
+  driverId?: number;
+  alertType: VehicleAlertType;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  message: string;
+  latitude?: number;
+  longitude?: number;
+  speedKmph?: number;
+  occurredAt: string;
+  acknowledgedBy?: number;
+  acknowledgedAt?: string;
+  status: 'OPEN' | 'ACKNOWLEDGED';
 }
 
 export interface NotificationChannel {

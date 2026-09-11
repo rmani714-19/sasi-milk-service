@@ -2,6 +2,8 @@ package com.sasimilkservice.vehicle.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -15,12 +17,16 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Map;
 
-/** A single GPS fix for a vehicle. */
+/**
+ * Every GPS fix ever received, kept forever (retention/archival is a future
+ * policy layered on top — nothing here assumes the table stays small).
+ * Append-only: a fix is inserted once and never updated or deleted.
+ */
 @Entity
-@Table(name = "vehicle_locations")
+@Table(name = "vehicle_location_history")
 @Getter
 @Setter
-public class VehicleLocation {
+public class VehicleLocationHistory {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -32,8 +38,8 @@ public class VehicleLocation {
     @Column(name = "device_id")
     private Long deviceId;
 
-    @Column(name = "recorded_at", nullable = false)
-    private Instant recordedAt;
+    @Column(name = "provider_timestamp", nullable = false)
+    private Instant providerTimestamp;
 
     @Column(nullable = false)
     private BigDecimal latitude;
@@ -44,15 +50,26 @@ public class VehicleLocation {
     @Column(name = "speed_kmph")
     private BigDecimal speedKmph;
 
-    @Column(name = "heading_deg")
-    private BigDecimal headingDeg;
+    @Column(name = "direction_degrees")
+    private BigDecimal directionDegrees;
 
-    private Boolean ignition;
+    private BigDecimal altitude;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ignition_status")
+    private IgnitionStatus ignitionStatus;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "motion_status")
+    private MotionStatus motionStatus;
+
+    @Column(name = "gps_accuracy")
+    private BigDecimal gpsAccuracy;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
     private Map<String, Object> raw;
 
-    @Column(name = "ingested_at", nullable = false, updatable = false, insertable = false)
-    private Instant ingestedAt;
+    @Column(name = "received_at", nullable = false, updatable = false, insertable = false)
+    private Instant receivedAt;
 }

@@ -19,7 +19,10 @@ import { DriverPaymentsPage } from './pages/payments/DriverPaymentsPage';
 import { PaymentHistoryPage } from './pages/payments/PaymentHistoryPage';
 import { PaymentReportsPage } from './pages/payments/PaymentReportsPage';
 import { ReportsPage } from './pages/ReportsPage';
-import { VehiclesPage } from './pages/VehiclesPage';
+import { VehicleMasterPage } from './pages/vehicles/VehicleMasterPage';
+import { VehicleDetailPage } from './pages/vehicles/VehicleDetailPage';
+import { LiveTrackingPage } from './pages/vehicles/LiveTrackingPage';
+import { VehicleAlertsPage } from './pages/vehicles/VehicleAlertsPage';
 import { NotificationsPage } from './pages/NotificationsPage';
 import { CenterPage } from './pages/CenterPage';
 
@@ -51,7 +54,10 @@ export function App() {
           <Route path="payments/history" element={<PaymentHistoryPage />} />
           <Route path="payments/reports" element={<PaymentReportsPage />} />
           <Route path="reports" element={<ReportsPage />} />
-          <Route path="vehicles" element={<VehiclesPage />} />
+          <Route path="vehicles" element={<VehicleMasterPage />} />
+          <Route path="vehicles/tracking" element={<LiveTrackingPage />} />
+          <Route path="vehicles/alerts" element={<VehicleAlertsPage />} />
+          <Route path="vehicles/:vehicleId" element={<VehicleDetailPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="center" element={<CenterPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

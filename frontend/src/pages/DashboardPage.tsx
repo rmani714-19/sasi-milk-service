@@ -216,7 +216,7 @@ export function DashboardPage() {
               label="Vehicles online"
               value={`${online}/${vehicles.data?.length ?? 0}`}
               icon={<LocalShippingOutlinedIcon />}
-              to="/vehicles"
+              to="/vehicles/tracking"
             />
           </Grid>
           <Grid size={{ xs: 6, sm: 4, md: 3 }}>

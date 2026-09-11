@@ -23,6 +23,7 @@ public class SecurityConfig {
             "/api/v1/auth/refresh",
             "/api/v1/payouts/webhook",
             "/api/v1/payments/webhooks/razorpayx",
+            "/api/v1/vehicles/providers/*/webhook",
             "/actuator/health/**",
             "/v3/api-docs/**",
             "/swagger-ui/**",

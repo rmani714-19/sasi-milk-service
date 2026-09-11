@@ -1,40 +1,39 @@
 package com.sasimilkservice.vehicle.service;
 
+import com.sasimilkservice.audit.spi.AuditRecorder;
+import com.sasimilkservice.common.error.BusinessRuleException;
 import com.sasimilkservice.common.error.ConflictException;
 import com.sasimilkservice.common.error.NotFoundException;
+import com.sasimilkservice.common.security.CurrentUser;
+import com.sasimilkservice.driver.repository.DriverRepository;
 import com.sasimilkservice.vehicle.domain.Vehicle;
-import com.sasimilkservice.vehicle.domain.VehicleDevice;
-import com.sasimilkservice.vehicle.domain.VehicleLocation;
-import com.sasimilkservice.vehicle.repository.VehicleDeviceRepository;
-import com.sasimilkservice.vehicle.repository.VehicleLocationRepository;
+import com.sasimilkservice.vehicle.domain.VehicleDriverAssignment;
+import com.sasimilkservice.vehicle.repository.VehicleDriverAssignmentRepository;
 import com.sasimilkservice.vehicle.repository.VehicleRepository;
-import com.sasimilkservice.vehicle.spi.VehicleStatusQuery;
-import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.Duration;
-import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 
+/** Vehicle master data and driver assignment. Device concerns live in {@link VehicleDeviceService}. */
 @Service
 @Transactional(readOnly = true)
-public class VehicleService implements VehicleStatusQuery {
-
-    /** A vehicle is "online" if its last GPS fix is within this window. */
-    private static final Duration ONLINE_WINDOW = Duration.ofMinutes(15);
+public class VehicleService {
 
     private final VehicleRepository vehicles;
-    private final VehicleDeviceRepository devices;
-    private final VehicleLocationRepository locations;
+    private final VehicleDriverAssignmentRepository driverAssignments;
+    private final DriverRepository drivers;
+    private final AuditRecorder audit;
 
-    public VehicleService(VehicleRepository vehicles,
-                          VehicleDeviceRepository devices,
-                          VehicleLocationRepository locations) {
+    public VehicleService(VehicleRepository vehicles, VehicleDriverAssignmentRepository driverAssignments,
+                          DriverRepository drivers, AuditRecorder audit) {
         this.vehicles = vehicles;
-        this.devices = devices;
-        this.locations = locations;
+        this.driverAssignments = driverAssignments;
+        this.drivers = drivers;
+        this.audit = audit;
     }
 
     public List<Vehicle> findAll() {
@@ -45,67 +44,113 @@ public class VehicleService implements VehicleStatusQuery {
         return vehicles.findById(id).orElseThrow(() -> NotFoundException.of("Vehicle", id));
     }
 
-    public List<VehicleDevice> devicesOf(long vehicleId) {
-        return devices.findByVehicleId(vehicleId);
-    }
-
-    public List<VehicleLocation> locationHistory(long vehicleId, int limit) {
-        return locations.findByVehicleIdOrderByRecordedAtDesc(vehicleId, Limit.of(Math.min(limit, 500)));
+    public List<VehicleDriverAssignment> driverAssignmentHistory(long vehicleId) {
+        return driverAssignments.findByVehicleIdOrderByIdDesc(vehicleId);
     }
 
     @Transactional
-    public Vehicle create(String code, String registrationNumber, String description,
-                          BigDecimal capacityLitres) {
+    public Vehicle create(String code, String registrationNumber, Vehicle.VehicleType vehicleType,
+                          String make, String model, Short modelYear, String description,
+                          BigDecimal capacityLitres, LocalDate registrationDate, LocalDate insuranceExpiry,
+                          LocalDate pollutionExpiry, String notes, Long driverId) {
         if (vehicles.findByCode(code).isPresent()) {
             throw new ConflictException("Vehicle code '" + code + "' already exists");
+        }
+        if (vehicles.findByRegistrationNumber(registrationNumber).isPresent()) {
+            throw new ConflictException("Vehicle number '" + registrationNumber + "' already exists");
         }
         Vehicle v = new Vehicle();
         v.setCode(code);
         v.setRegistrationNumber(registrationNumber);
+        v.setVehicleType(vehicleType == null ? Vehicle.VehicleType.OTHER : vehicleType);
+        v.setMake(make);
+        v.setModel(model);
+        v.setModelYear(modelYear);
         v.setDescription(description);
         v.setCapacityLitres(capacityLitres);
-        return vehicles.save(v);
+        v.setRegistrationDate(registrationDate);
+        v.setInsuranceExpiry(insuranceExpiry);
+        v.setPollutionExpiry(pollutionExpiry);
+        v.setNotes(notes);
+        v = vehicles.save(v);
+        audit.record("VEHICLE_CREATED", "Vehicle", v.getId(),
+                "Vehicle " + v.getRegistrationNumber() + " (" + v.getCode() + ") created");
+        if (driverId != null) {
+            assignDriver(v.getId(), driverId, LocalDate.now(), "Assigned at vehicle creation");
+        }
+        return v;
     }
 
     @Transactional
-    public VehicleDevice registerDevice(long vehicleId, VehicleDevice.DeviceType type,
-                                        String provider, String externalDeviceId) {
-        require(vehicleId);
-        VehicleDevice d = new VehicleDevice();
-        d.setVehicleId(vehicleId);
-        d.setDeviceType(type);
-        d.setProvider(provider);
-        d.setExternalDeviceId(externalDeviceId);
-        return devices.save(d);
+    public Vehicle update(long id, Vehicle.VehicleType vehicleType, String make, String model, Short modelYear,
+                          String description, BigDecimal capacityLitres, LocalDate registrationDate,
+                          LocalDate insuranceExpiry, LocalDate pollutionExpiry, String notes) {
+        Vehicle v = require(id);
+        if (vehicleType != null) v.setVehicleType(vehicleType);
+        v.setMake(make);
+        v.setModel(model);
+        v.setModelYear(modelYear);
+        v.setDescription(description);
+        v.setCapacityLitres(capacityLitres);
+        v.setRegistrationDate(registrationDate);
+        v.setInsuranceExpiry(insuranceExpiry);
+        v.setPollutionExpiry(pollutionExpiry);
+        v.setNotes(notes);
+        audit.record("VEHICLE_UPDATED", "Vehicle", id, "Vehicle " + v.getRegistrationNumber() + " updated");
+        return v;
     }
 
     @Transactional
-    public VehicleLocation recordLocation(long vehicleId, Instant recordedAt, BigDecimal lat, BigDecimal lng,
-                                          BigDecimal speedKmph, BigDecimal headingDeg, Boolean ignition) {
-        require(vehicleId);
-        VehicleLocation loc = new VehicleLocation();
-        loc.setVehicleId(vehicleId);
-        loc.setRecordedAt(recordedAt == null ? Instant.now() : recordedAt);
-        loc.setLatitude(lat);
-        loc.setLongitude(lng);
-        loc.setSpeedKmph(speedKmph);
-        loc.setHeadingDeg(headingDeg);
-        loc.setIgnition(ignition);
-        return locations.save(loc);
+    public Vehicle changeStatus(long id, Vehicle.Status status) {
+        Vehicle v = require(id);
+        Vehicle.Status old = v.getStatus();
+        if (old == status) {
+            return v;
+        }
+        v.setStatus(status);
+        audit.record("VEHICLE_STATUS_CHANGED", "Vehicle", id, old + " -> " + status);
+        return v;
     }
 
-    @Override
-    public List<VehicleStatus> allStatuses() {
-        Instant cutoff = Instant.now().minus(ONLINE_WINDOW);
-        return vehicles.findAll().stream().map(v -> {
-            VehicleLocation last = locations.findFirstByVehicleIdOrderByRecordedAtDesc(v.getId()).orElse(null);
-            boolean online = last != null && last.getRecordedAt().isAfter(cutoff);
-            return new VehicleStatus(
-                    v.getId(), v.getCode(), v.getRegistrationNumber(), online,
-                    last == null ? null : last.getLatitude().doubleValue(),
-                    last == null ? null : last.getLongitude().doubleValue(),
-                    last == null || last.getSpeedKmph() == null ? null : last.getSpeedKmph().doubleValue(),
-                    last == null ? null : last.getRecordedAt());
-        }).toList();
+    @Transactional
+    public VehicleDriverAssignment assignDriver(long vehicleId, long driverId, LocalDate from, String remarks) {
+        Vehicle v = require(vehicleId);
+        if (!drivers.existsById(driverId)) {
+            throw NotFoundException.of("Driver", driverId);
+        }
+        if (from == null) {
+            from = LocalDate.now();
+        }
+        LocalDate assignedFrom = from;
+        driverAssignments.findByVehicleIdAndAssignedToIsNull(vehicleId).ifPresent(open -> {
+            if (Objects.equals(open.getDriverId(), driverId)) {
+                throw new BusinessRuleException("This driver is already assigned to the vehicle");
+            }
+            open.setAssignedTo(assignedFrom);
+        });
+
+        VehicleDriverAssignment a = new VehicleDriverAssignment();
+        a.setVehicleId(vehicleId);
+        a.setDriverId(driverId);
+        a.setAssignedFrom(assignedFrom);
+        a.setRemarks(remarks);
+        CurrentUser.id().ifPresent(a::setAssignedBy);
+        a = driverAssignments.save(a);
+
+        v.setDriverId(driverId);
+        audit.record("VEHICLE_DRIVER_ASSIGNED", "Vehicle", vehicleId,
+                "Driver " + driverId + " assigned from " + assignedFrom);
+        return a;
+    }
+
+    @Transactional
+    public void unassignDriver(long vehicleId, LocalDate to) {
+        Vehicle v = require(vehicleId);
+        VehicleDriverAssignment open = driverAssignments.findByVehicleIdAndAssignedToIsNull(vehicleId)
+                .orElseThrow(() -> new BusinessRuleException("No driver is currently assigned to this vehicle"));
+        open.setAssignedTo(to == null ? LocalDate.now() : to);
+        v.setDriverId(null);
+        audit.record("VEHICLE_DRIVER_UNASSIGNED", "Vehicle", vehicleId,
+                "Driver " + open.getDriverId() + " unassigned on " + open.getAssignedTo());
     }
 }

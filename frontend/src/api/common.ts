@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import type { Page, Producer, Region } from './types';
+import type { Driver, Page, Producer, Region } from './types';
 
 export function useRegions() {
   return useQuery({
@@ -29,6 +29,26 @@ export function useProducerLookup() {
     return p ? `${p.producerNumber} · ${p.producerName}` : `#${id}`;
   };
   return { byId, label, isLoading: q.isLoading };
+}
+
+/** id → Driver map, for vehicle assignment pickers and status displays. */
+export function useDriverLookup() {
+  const q = useQuery({
+    queryKey: ['drivers', 'lookup'],
+    queryFn: async () => (await api.get<Driver[]>('/drivers')).data,
+    staleTime: 5 * 60_000,
+  });
+  const byId = useMemo(() => {
+    const m = new Map<number, Driver>();
+    (q.data ?? []).forEach((d) => m.set(d.id, d));
+    return m;
+  }, [q.data]);
+  const label = (id?: number | null) => {
+    if (id == null) return '—';
+    const d = byId.get(id);
+    return d ? `${d.code} · ${d.name}` : `#${id}`;
+  };
+  return { data: q.data, byId, label, isLoading: q.isLoading };
 }
 
 /** Fetch a file (report export etc.) with auth and trigger a browser download. */
