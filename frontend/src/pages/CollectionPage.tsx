@@ -20,6 +20,10 @@ import Divider from '@mui/material/Divider';
 import Grid from '@mui/material/Grid2';
 import InputAdornment from '@mui/material/InputAdornment';
 import LinearProgress from '@mui/material/LinearProgress';
+import ListItemText from '@mui/material/ListItemText';
+import MenuItem from '@mui/material/MenuItem';
+import MenuList from '@mui/material/MenuList';
+import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -88,6 +92,9 @@ export function CollectionPage() {
   const toast = useToast();
   const regions = useRegions();
   const producerInputRef = useRef<HTMLInputElement>(null);
+  // bumped whenever the producer text changes/clears, so a slow-to-resolve
+  // lookup can't land after the user has already typed something else
+  const resolveSeqRef = useRef(0);
   const litresRef = useRef<HTMLInputElement>(null);
   const fatRef = useRef<HTMLInputElement>(null);
   const snfRef = useRef<HTMLInputElement>(null);
@@ -158,6 +165,7 @@ export function CollectionPage() {
   }, [date]);
 
   function selectProducer(p: Producer) {
+    resolveSeqRef.current++;
     setProducer(p);
     setNotFound(false);
     setRef(p.producerNumber);
@@ -169,9 +177,12 @@ export function CollectionPage() {
   async function resolveProducer(q?: string) {
     const term = (q ?? ref).trim();
     if (!term) return;
+    const seq = ++resolveSeqRef.current;
     setNotFound(false);
     try {
       const { data } = await api.get<Page<Producer>>('/producers', { params: { q: term, size: 5 } });
+      // the user has since cleared/retyped/rescanned — this result is stale, drop it
+      if (seq !== resolveSeqRef.current) return;
       const match =
         data.content.find((p) => p.producerNumber.toLowerCase() === term.toLowerCase()) ?? data.content[0];
       if (match) {
@@ -181,6 +192,7 @@ export function CollectionPage() {
         setNotFound(true);
       }
     } catch {
+      if (seq !== resolveSeqRef.current) return;
       setProducer(null);
       setNotFound(true);
     }
@@ -286,6 +298,7 @@ export function CollectionPage() {
     capturedFocus.current = false;
     if (mode === 'AUTO') setArmed(false); // wait for the pan to be emptied
     if (!keepProducer) {
+      resolveSeqRef.current++;
       setRef('');
       setProducer(null);
       setNotFound(false);
@@ -462,6 +475,7 @@ export function CollectionPage() {
                     helperOk={!!producer}
                     inputRef={producerInputRef}
                     onRawChange={(v) => {
+                      resolveSeqRef.current++;
                       setRef(v);
                       setProducer(null);
                       setNotFound(false);
@@ -1018,20 +1032,110 @@ function ProducerSelector({
   onResolve: (v: string) => void;
   onSelect: (p: Producer) => void;
 }) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [suggestions, setSuggestions] = useState<Producer[]>([]);
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(-1);
+  // set once the user commits (Enter/Escape) so an in-flight suggestion
+  // fetch can't reopen the dropdown after they've moved on; cleared again
+  // the moment they type
+  const suppressReopenRef = useRef(false);
+
+  // Live "contains" search as the operator types — a scanned code still
+  // resolves instantly on Enter below, this is purely additive.
+  useEffect(() => {
+    const term = rawText.trim();
+    if (value || !term) {
+      setSuggestions([]);
+      setOpen(false);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await api.get<Page<Producer>>('/producers', { params: { q: term, size: 8 } });
+        if (cancelled || suppressReopenRef.current) return;
+        setSuggestions(data.content);
+        setOpen(data.content.length > 0);
+        setHighlight(-1);
+      } catch {
+        if (!cancelled && !suppressReopenRef.current) {
+          setSuggestions([]);
+          setOpen(false);
+        }
+      }
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [rawText, value]);
+
+  // close the dropdown on an outside click
+  useEffect(() => {
+    if (!open) return;
+    function onDocMouseDown(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [open]);
+
+  function pick(p: Producer) {
+    suppressReopenRef.current = true;
+    setOpen(false);
+    setSuggestions([]);
+    onSelect(p);
+  }
+
   return (
-    <Box>
+    <Box ref={boxRef} sx={{ position: 'relative' }}>
       <TextField
         inputRef={inputRef}
         autoFocus
         fullWidth
         label="Producer — scan QR or type number / name"
         value={rawText}
-        onChange={(e) => onRawChange(e.target.value)}
+        onChange={(e) => {
+          suppressReopenRef.current = false;
+          onRawChange(e.target.value);
+          setOpen(true);
+        }}
         onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') {
+            if (open && suggestions.length > 0) {
+              e.preventDefault();
+              setHighlight((h) => Math.min(h + 1, suggestions.length - 1));
+            }
+            return;
+          }
+          if (e.key === 'ArrowUp') {
+            if (open && suggestions.length > 0) {
+              e.preventDefault();
+              setHighlight((h) => Math.max(h - 1, 0));
+            }
+            return;
+          }
+          if (e.key === 'Escape') {
+            suppressReopenRef.current = true;
+            setOpen(false);
+            return;
+          }
           if (isEnter(e)) {
             e.preventDefault();
-            onResolve(rawText);
+            // Arrow-selected suggestion wins; otherwise resolve the typed/scanned
+            // text exactly as before (a barcode scanner never sends arrow keys).
+            if (open && highlight >= 0 && suggestions[highlight]) {
+              pick(suggestions[highlight]);
+            } else {
+              suppressReopenRef.current = true;
+              setOpen(false);
+              onResolve(rawText);
+            }
           }
+        }}
+        onFocus={() => {
+          if (!value && suggestions.length > 0 && !suppressReopenRef.current) setOpen(true);
         }}
         onBlur={() => {
           if (rawText.trim() && !value) onResolve(rawText);
@@ -1051,7 +1155,27 @@ function ProducerSelector({
         }}
         inputProps={{ autoComplete: 'off' }}
       />
-      {!value && recent.length > 0 && (
+      {open && suggestions.length > 0 && (
+        <Paper elevation={6} sx={{ position: 'absolute', zIndex: 20, mt: 0.5, width: '100%', maxHeight: 280, overflowY: 'auto' }}>
+          <MenuList dense sx={{ py: 0.5 }}>
+            {suggestions.map((p, i) => (
+              <MenuItem
+                key={p.id}
+                selected={i === highlight}
+                onMouseDown={(e) => e.preventDefault()}
+                onMouseEnter={() => setHighlight(i)}
+                onClick={() => pick(p)}
+              >
+                <ListItemText
+                  primary={`${p.producerNumber} · ${p.producerName}`}
+                  secondary={p.mobileNumber || undefined}
+                />
+              </MenuItem>
+            ))}
+          </MenuList>
+        </Paper>
+      )}
+      {!open && !value && recent.length > 0 && (
         <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', rowGap: 1, alignItems: 'center' }}>
           <Typography variant="caption" color="text.secondary">
             Recent:
