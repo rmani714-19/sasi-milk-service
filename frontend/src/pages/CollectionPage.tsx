@@ -16,6 +16,7 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import Divider from '@mui/material/Divider';
 import Grid from '@mui/material/Grid2';
 import InputAdornment from '@mui/material/InputAdornment';
 import LinearProgress from '@mui/material/LinearProgress';
@@ -425,8 +426,10 @@ export function CollectionPage() {
         />
       )}
 
-      {/* ---------- entry panel ---------- */}
-      <Card sx={{ mb: 3 }}>
+      {/* ---------- entry panel + live summary ---------- */}
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+      <Grid size={{ xs: 12, md: 8 }}>
+      <Card>
         <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
           <Stack spacing={2.5}>
             {/* mode selector — always visible, top of the entry area */}
@@ -603,50 +606,6 @@ export function CollectionPage() {
               </Grid>
             </Box>
 
-            {/* calculation summary */}
-            {justSaved && lastSaved ? (
-              <Box
-                sx={{
-                  bgcolor: 'primary.light',
-                  border: 1,
-                  borderColor: 'primary.main',
-                  borderRadius: 2,
-                  p: 2,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 1.5,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <Stack direction="row" spacing={1.25} alignItems="center">
-                  <CheckCircleIcon sx={{ color: 'success.main' }} />
-                  <Box>
-                    <Typography variant="body2" fontWeight={700}>
-                      Saved · {lastSaved.collectionNumber}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {lastSaved.qualityPending ? (
-                        <>
-                          {fmtL(lastSaved.litres)} · <b>quality pending</b> — add FAT/SNF from the list below
-                        </>
-                      ) : (
-                        <>
-                          {fmtL(lastSaved.litres)} @ {fmtRate(lastSaved.breakdown.ratePerLitre)} · Net{' '}
-                          <b>{money(lastSaved.breakdown.netAmount)}</b>
-                        </>
-                      )}
-                    </Typography>
-                  </Box>
-                </Stack>
-                <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={() => print(lastSaved)}>
-                  Print
-                </Button>
-              </Box>
-            ) : (
-              <AmountSummary preview={preview} estBase={estBase} qualityPending={!qualityComplete} />
-            )}
-
             {/* actions */}
             <Stack
               direction={{ xs: 'column', sm: 'row' }}
@@ -679,6 +638,85 @@ export function CollectionPage() {
           </Stack>
         </CardContent>
       </Card>
+      </Grid>
+
+      {/* ---------- live summary — same panel, AUTO or MANUAL, until saved ---------- */}
+      <Grid size={{ xs: 12, md: 4 }}>
+        <Card sx={{ height: '100%', position: { md: 'sticky' }, top: { md: 16 } }}>
+          <CardContent>
+            {justSaved && lastSaved ? (
+              <>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+                  <CheckCircleIcon sx={{ color: 'success.main' }} />
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                    Saved · {lastSaved.collectionNumber}
+                  </Typography>
+                </Stack>
+                <Stack spacing={1.25} divider={<Divider flexItem />}>
+                  <SummaryRow label="Total litres" value={fmtL(lastSaved.litres)} />
+                  <SummaryRow label="FAT" value={lastSaved.qualityPending ? '—' : `${lastSaved.fat}%`} />
+                  <SummaryRow label="SNF" value={lastSaved.qualityPending ? '—' : `${lastSaved.snf}%`} />
+                  <SummaryRow
+                    label="Rate / litre"
+                    value={lastSaved.qualityPending ? '—' : fmtRate(lastSaved.breakdown.ratePerLitre)}
+                  />
+                  <SummaryRow
+                    label="Total amount"
+                    value={lastSaved.qualityPending ? 'Pending' : money(lastSaved.breakdown.netAmount)}
+                    bold
+                  />
+                </Stack>
+                {lastSaved.qualityPending && (
+                  <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 1.5 }}>
+                    Quality pending — add FAT/SNF from the list below to see the amount.
+                  </Typography>
+                )}
+                <Button
+                  fullWidth
+                  size="small"
+                  variant="outlined"
+                  startIcon={<PrintIcon />}
+                  sx={{ mt: 2.5 }}
+                  onClick={() => print(lastSaved)}
+                >
+                  Print receipt
+                </Button>
+              </>
+            ) : (
+              <>
+                <Typography variant="overline" color="text.secondary">
+                  Live summary
+                </Typography>
+                <Stack spacing={1.25} divider={<Divider flexItem />} sx={{ mt: 1 }}>
+                  <SummaryRow label="Total litres" value={litres ? fmtL(Number(litres)) : '—'} />
+                  <SummaryRow label="FAT" value={fat ? `${fat}%` : '—'} />
+                  <SummaryRow label="SNF" value={snf ? `${snf}%` : '—'} />
+                  <SummaryRow
+                    label="Rate / litre"
+                    value={
+                      preview ? (
+                        <>
+                          {fmtRate(preview.ratePerLitre)}{' '}
+                          <Chip label={preview.scope} size="small" variant="outlined" sx={{ ml: 0.5 }} />
+                        </>
+                      ) : (
+                        '—'
+                      )
+                    }
+                  />
+                  <SummaryRow label="Total amount" value={estBase != null ? money(estBase) : '—'} bold big />
+                </Stack>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+                  {qualityComplete
+                    ? 'Incentive & deduction are applied on save.'
+                    : 'Rate & amount are worked out once FAT / SNF are added.'}
+                </Typography>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </Grid>
+      </Grid>
 
       {/* ---------- recent collections ---------- */}
       <Stack
@@ -925,55 +963,29 @@ function ReadOut({ label, value, warn }: { label: string; value: ReactNode; warn
   );
 }
 
-function AmountSummary({
-  preview,
-  estBase,
-  qualityPending,
+function SummaryRow({
+  label,
+  value,
+  bold,
+  big,
 }: {
-  preview: RatePreview | null;
-  estBase: number | null;
-  qualityPending?: boolean;
+  label: string;
+  value: ReactNode;
+  bold?: boolean;
+  big?: boolean;
 }) {
   return (
-    <Box sx={{ bgcolor: 'primary.light', borderRadius: 2, p: 2 }}>
-      <Stack
-        direction="row"
-        spacing={2}
-        divider={<Box sx={{ width: '1px', bgcolor: 'primary.main', opacity: 0.25 }} />}
-        sx={{ flexWrap: 'wrap', rowGap: 1 }}
-      >
-        <Mini label="Rate / L" value={preview ? fmtRate(preview.ratePerLitre) : '—'} />
-        <Mini label="Milk amount" value={estBase != null ? money(estBase) : '—'} />
-        <Mini label="Incentive" value="—" />
-        <Mini label="Deduction" value="—" />
-      </Stack>
-      <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mt: 1.5 }}>
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            Estimated net {preview && <Chip label={preview.scope} size="small" variant="outlined" sx={{ ml: 0.5 }} />}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-            {qualityPending ? 'rate & amount are worked out once FAT / SNF are added' : 'incentive & deduction are applied on save'}
-          </Typography>
-        </Box>
-        <Typography sx={{ fontSize: 30, fontWeight: 800 }} color="primary.dark">
-          {estBase != null ? money(estBase) : '—'}
-        </Typography>
-      </Stack>
-    </Box>
-  );
-}
-
-function Mini({ label, value }: { label: string; value: string }) {
-  return (
-    <Box>
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+    <Stack direction="row" justifyContent="space-between" alignItems="baseline" spacing={1}>
+      <Typography variant="body2" color="text.secondary">
         {label}
       </Typography>
-      <Typography sx={{ fontWeight: 700, fontSize: 14 }} color="primary.dark">
+      <Typography
+        sx={{ fontWeight: bold ? 800 : 600, fontSize: big ? 24 : 15 }}
+        color={bold ? 'primary.dark' : 'text.primary'}
+      >
         {value}
       </Typography>
-    </Box>
+    </Stack>
   );
 }
 
