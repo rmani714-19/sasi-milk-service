@@ -57,6 +57,10 @@ public class Settlement extends AuditableEntity {
     @Column(nullable = false)
     private Status status = Status.DRAFT;
 
+    /** When set, this batch pays only this region/area; null = every region. */
+    @Column(name = "region_id")
+    private Long regionId;
+
     @Column(name = "total_producers", nullable = false)
     private int totalProducers;
 

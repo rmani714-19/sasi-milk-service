@@ -8,7 +8,4 @@ import java.util.List;
 public interface PayoutTransactionRepository extends JpaRepository<PayoutTransaction, Long> {
 
     List<PayoutTransaction> findByPayoutIdOrderByIdAsc(Long payoutId);
-
-    boolean existsByPayoutIdAndEventTypeAndProviderRef(
-            Long payoutId, PayoutTransaction.EventType eventType, String providerRef);
 }

@@ -335,6 +335,14 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
                         crypto.decrypt(a.getAccountNumberEnc()), a.getIfscCode(), a.getBankName()));
     }
 
+    @Override
+    public Optional<MaskedBankAccount> maskedDetails(Long bankAccountId) {
+        return bankAccounts.findById(bankAccountId)
+                .map(a -> new MaskedBankAccount(a.getAccountHolderName(),
+                        a.getAccountNumberLast4() == null ? null : "********" + a.getAccountNumberLast4(),
+                        a.getIfscCode(), a.getBankName()));
+    }
+
     // ---- commands ----
 
     public record CreateProducerCommand(

@@ -200,9 +200,9 @@ advance, settlement, payout, notification, report, vehicle** (+ `audit`, `common
   (`DeductionLedger`, `AdvanceLedger`, `CollectionSettlementGateway`,
   `BankAccountResolver`), runs the pure `SettlementCalculator` + `RoundingRule`,
   and drives DRAFT → CALCULATED → REVIEWED → APPROVED with cancel/recalculate unwind.
-- **payout** — `PayoutProvider` abstraction (default `MANUAL`; RazorpayX slots in
-  as a bean), idempotent on `po-<itemId>`, webhook (signature-verified, deduped),
-  retry, manual mark-paid/failed; rolls settlement status
+- **payout** — manual-bank payment tracking. The app never moves money and has no payment-gateway
+  integration: it records the bank submission, then the owner confirms each producer (bank reference
+  + payment date) or marks it failed. Idempotent on `po-<itemId>`; rolls settlement status
   PAYOUT_INITIATED → PARTIALLY_PAID → PAID/FAILED.
 - **notification** — `NotificationPublisher` SPI; queue table + `{{mustache}}`
   templates + per-channel enable; a scheduled sweep delivers each row in its own

@@ -18,6 +18,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { litres, money } from '../lib/format';
 import { PageHeader } from '../components/PageHeader';
+import { batchStatusLabel } from '../lib/paymentLabels';
 import { StatusChip } from '../components/StatusChip';
 import { EmptyState, QueryBoundary, TableSkeleton, useToast } from '../components/ui';
 import type { SettlementSummary } from '../api/types';
@@ -97,7 +98,7 @@ export function SettlementsPage() {
                       {money(s.totalNetPayable)}
                     </TableCell>
                     <TableCell>
-                      <StatusChip status={s.status} />
+                      <StatusChip status={s.status} label={batchStatusLabel(s.status)} />
                     </TableCell>
                   </TableRow>
                 ))}

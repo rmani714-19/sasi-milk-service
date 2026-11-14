@@ -69,6 +69,15 @@ public class DriverController {
                 r.salaryType(), r.monthlySalary(), r.perDayRate(), r.status(), r.note(), r.bank()));
     }
 
+    @PutMapping("/{id}/route")
+    @PreAuthorize("hasAuthority('MANAGE_DRIVERS')")
+    public DriverResponse setRoute(@PathVariable long id, @RequestBody RouteRequest r) {
+        return DriverResponse.from(service.setRoute(id, r.regionIds()));
+    }
+
+    public record RouteRequest(java.util.List<Long> regionIds) {
+    }
+
     @PostMapping("/{id}/deactivate")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @PreAuthorize("hasAuthority('MANAGE_DRIVERS')")
@@ -107,14 +116,16 @@ public class DriverController {
             Long vehicleId, String salaryType, BigDecimal monthlySalary, BigDecimal perDayRate,
             String status, String note,
             String accountHolderName, String accountNumberMasked, String ifscCode,
-            String bankName, String branchName, boolean bankComplete, Instant bankUpdatedAt) {
+            String bankName, String branchName, boolean bankComplete, Instant bankUpdatedAt,
+            java.util.List<Long> routeRegionIds) {
 
         static DriverResponse from(Driver d) {
             return new DriverResponse(d.getId(), d.getCode(), d.getName(), d.getMobile(), d.getJoiningDate(),
                     d.getVehicleId(), d.getSalaryType().name(), d.getMonthlySalary(), d.getPerDayRate(),
                     d.getStatus().name(), d.getNote(),
                     d.getAccountHolderName(), d.maskedAccount(), d.getIfscCode(),
-                    d.getBankName(), d.getBranchName(), d.isBankComplete(), d.getBankUpdatedAt());
+                    d.getBankName(), d.getBranchName(), d.isBankComplete(), d.getBankUpdatedAt(),
+                    d.getRouteRegionIds().stream().sorted().toList());
         }
     }
 

@@ -1,10 +1,14 @@
 package com.sasimilkservice.driver.domain;
 
 import com.sasimilkservice.common.domain.AuditableEntity;
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
@@ -12,6 +16,8 @@ import lombok.Setter;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashSet;
+import java.util.Set;
 
 /** A vehicle driver on the payroll. Salary is paid monthly via a salary batch. */
 @Entity
@@ -53,6 +59,12 @@ public class Driver extends AuditableEntity {
     private Status status = Status.ACTIVE;
 
     private String note;
+
+    /** The regions (areas) this driver collects from — their "route". */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "driver_route_regions", joinColumns = @JoinColumn(name = "driver_id"))
+    @Column(name = "region_id")
+    private Set<Long> routeRegionIds = new HashSet<>();
 
     // ---- bank details (payout information for monthly salary) ----
 

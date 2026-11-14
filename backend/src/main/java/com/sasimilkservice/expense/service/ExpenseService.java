@@ -17,7 +17,7 @@ import java.util.List;
 
 @Service
 @Transactional(readOnly = true)
-public class ExpenseService {
+public class ExpenseService implements com.sasimilkservice.expense.spi.VehicleExpenseQuery {
 
     private final ExpenseRepository repository;
     private final AuditRecorder audit;
@@ -31,15 +31,24 @@ public class ExpenseService {
         return repository.findAllByOrderByExpenseDateDescIdDesc();
     }
 
+    @Override
+    public List<VehicleExpense> forVehicle(long vehicleId, LocalDate from, LocalDate to) {
+        return repository.findForVehicle(vehicleId, from, to).stream()
+                .map(e -> new VehicleExpense(e.getId(), e.getExpenseNumber(), e.getExpenseDate(),
+                        e.getCategory().name(), e.getDescription(), e.getAmount()))
+                .toList();
+    }
+
     public Expense require(long id) {
         return repository.findById(id).orElseThrow(() -> NotFoundException.of("Expense", id));
     }
 
     @Transactional
     public Expense create(Category category, String description, BigDecimal amount, LocalDate expenseDate,
-                          PaymentMethod method, String reference, Status status) {
+                          PaymentMethod method, String reference, Status status, Long vehicleId) {
         validateAmount(amount);
         Expense e = new Expense();
+        e.setVehicleId(vehicleId);
         e.setExpenseNumber("EXP%05d".formatted(repository.nextExpenseNumberValue()));
         e.setCategory(category);
         e.setDescription(blankToNull(description));
@@ -56,13 +65,14 @@ public class ExpenseService {
 
     @Transactional
     public Expense update(long id, Category category, String description, BigDecimal amount, LocalDate expenseDate,
-                          PaymentMethod method, String reference, Status status) {
+                          PaymentMethod method, String reference, Status status, Long vehicleId) {
         Expense e = require(id);
         if (e.getStatus() == Status.CANCELLED) {
             throw new BusinessRuleException("A cancelled expense cannot be edited");
         }
         validateAmount(amount);
         e.setCategory(category);
+        e.setVehicleId(vehicleId);
         e.setDescription(blankToNull(description));
         e.setAmount(amount);
         if (expenseDate != null) {

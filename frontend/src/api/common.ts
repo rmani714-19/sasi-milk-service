@@ -64,3 +64,24 @@ export async function downloadFile(url: string, filename: string) {
   a.click();
   URL.revokeObjectURL(href);
 }
+
+/**
+ * Fetch a PDF with auth and open it in a new tab for preview/printing. The tab is opened first,
+ * synchronously, so the browser does not treat it as a blocked pop-up.
+ */
+export async function openPdf(url: string) {
+  const tab = window.open('', '_blank');
+  try {
+    const res = await api.get(url, { responseType: 'blob' });
+    const href = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+    if (tab) {
+      tab.location.href = href;
+    } else {
+      window.location.href = href;
+    }
+    setTimeout(() => URL.revokeObjectURL(href), 60_000);
+  } catch (e) {
+    tab?.close();
+    throw e;
+  }
+}

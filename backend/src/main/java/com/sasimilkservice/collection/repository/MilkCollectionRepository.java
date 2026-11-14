@@ -14,6 +14,19 @@ import java.util.UUID;
 
 public interface MilkCollectionRepository extends JpaRepository<MilkCollection, Long> {
 
+    /** date, regionId, shift, litres, count — for a route's litres statement. */
+    @Query("""
+            select c.collectionDate, c.regionId, c.shift, sum(c.milkQuantityLitres), count(c)
+            from MilkCollection c
+            where c.regionId in :regionIds and c.collectionDate between :from and :to
+              and c.status in (com.sasimilkservice.collection.domain.MilkCollection.Status.CONFIRMED,
+                               com.sasimilkservice.collection.domain.MilkCollection.Status.PENDING_QUALITY)
+            group by c.collectionDate, c.regionId, c.shift
+            order by c.collectionDate, c.regionId, c.shift
+            """)
+    List<Object[]> routeLitres(@Param("regionIds") java.util.Collection<Long> regionIds,
+                               @Param("from") LocalDate from, @Param("to") LocalDate to);
+
     Optional<MilkCollection> findByClientTransactionId(UUID clientTransactionId);
 
     Optional<MilkCollection> findByPublicId(UUID publicId);
@@ -55,6 +68,8 @@ public interface MilkCollectionRepository extends JpaRepository<MilkCollection, 
 
     List<MilkCollection> findByStatusAndSettlementItemIdIsNullAndCollectionDateBetween(
             MilkCollection.Status status, LocalDate start, LocalDate end);
+
+    long countByStatusAndCollectionDateBetweenAndRegionId(MilkCollection.Status status, LocalDate start, LocalDate end, Long regionId);
 
     long countByStatusAndCollectionDateBetween(MilkCollection.Status status, LocalDate start, LocalDate end);
 

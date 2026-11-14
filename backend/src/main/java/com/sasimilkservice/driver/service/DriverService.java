@@ -7,6 +7,7 @@ import com.sasimilkservice.common.error.NotFoundException;
 import com.sasimilkservice.common.security.CurrentUser;
 import com.sasimilkservice.driver.domain.Driver;
 import com.sasimilkservice.driver.repository.DriverRepository;
+import com.sasimilkservice.region.spi.RegionDirectory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,11 +27,30 @@ public class DriverService {
     private final DriverRepository drivers;
     private final FieldCrypto crypto;
     private final AuditRecorder audit;
+    private final RegionDirectory regions;
 
-    public DriverService(DriverRepository drivers, FieldCrypto crypto, AuditRecorder audit) {
+    public DriverService(DriverRepository drivers, FieldCrypto crypto, AuditRecorder audit, RegionDirectory regions) {
         this.drivers = drivers;
         this.crypto = crypto;
         this.audit = audit;
+        this.regions = regions;
+    }
+
+    /** Set the regions (areas) this driver collects from. Replaces the previous route. */
+    @Transactional
+    public Driver setRoute(long id, java.util.Collection<Long> regionIds) {
+        Driver d = require(id);
+        java.util.Set<Long> wanted = new java.util.HashSet<>(regionIds == null ? java.util.List.of() : regionIds);
+        for (Long r : wanted) {
+            if (r == null || !regions.isActive(r)) {
+                throw new BusinessRuleException("Region " + r + " is not an active region");
+            }
+        }
+        d.getRouteRegionIds().clear();
+        d.getRouteRegionIds().addAll(wanted);
+        audit.record("DRIVER_UPDATED", "Driver", id,
+                "Driver %s route set to %d region(s)".formatted(d.getCode(), wanted.size()));
+        return d;
     }
 
     public List<Driver> findAll() {

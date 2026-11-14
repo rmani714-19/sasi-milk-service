@@ -42,14 +42,14 @@ public class ExpenseController {
     @PreAuthorize("hasAuthority('MANAGE_EXPENSES')")
     public ExpenseResponse create(@Valid @RequestBody ExpenseRequest r) {
         return ExpenseResponse.from(service.create(r.category(), r.description(), r.amount(),
-                r.expenseDate(), r.paymentMethod(), r.paymentReference(), r.status()));
+                r.expenseDate(), r.paymentMethod(), r.paymentReference(), r.status(), r.vehicleId()));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('MANAGE_EXPENSES')")
     public ExpenseResponse update(@PathVariable long id, @Valid @RequestBody ExpenseRequest r) {
         return ExpenseResponse.from(service.update(id, r.category(), r.description(), r.amount(),
-                r.expenseDate(), r.paymentMethod(), r.paymentReference(), r.status()));
+                r.expenseDate(), r.paymentMethod(), r.paymentReference(), r.status(), r.vehicleId()));
     }
 
     @PostMapping("/{id}/cancel")
@@ -66,17 +66,19 @@ public class ExpenseController {
             LocalDate expenseDate,
             Expense.PaymentMethod paymentMethod,
             String paymentReference,
-            Expense.Status status) {
+            Expense.Status status,
+            Long vehicleId) {
     }
 
     public record ExpenseResponse(
             Long id, String expenseNumber, String category, String description, BigDecimal amount,
-            LocalDate expenseDate, String paymentMethod, String paymentReference, String status, Instant paidAt) {
+            LocalDate expenseDate, String paymentMethod, String paymentReference, String status, Instant paidAt,
+            Long vehicleId) {
 
         static ExpenseResponse from(Expense e) {
             return new ExpenseResponse(e.getId(), e.getExpenseNumber(), e.getCategory().name(), e.getDescription(),
                     e.getAmount(), e.getExpenseDate(), e.getPaymentMethod().name(), e.getPaymentReference(),
-                    e.getStatus().name(), e.getPaidAt());
+                    e.getStatus().name(), e.getPaidAt(), e.getVehicleId());
         }
     }
 }

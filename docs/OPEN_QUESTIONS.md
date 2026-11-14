@@ -25,7 +25,7 @@ change needs no rewrite.
 | 10 | Multiple collections per producer per shift? | `milk_collections` constraints | allowed; dedupe only via `client_transaction_id` |
 | 11 | Edit a collection after save? | `milk_collections.status` | void + re-enter (audited); no in-place financial edit |
 | 12 | Who approves a settlement? | `@PreAuthorize` | `APPROVE_SETTLEMENT` → CENTER_MANAGER + ADMIN |
-| 13 | Payout provider + webhook signature scheme | `payout` adapter | provider abstraction; RazorpayX first |
+| 13 | Payout provider + webhook signature scheme | `payout` | decided: none — payments are manual via the bank; the app only records them |
 | 14 | SMS provider + India DLT; WhatsApp BSP; email provider | `notification_channel_config` | pluggable; DLT/WA template id per template |
 | 15 | Post-approval corrections — next settlement only, or off-cycle payout? | `settlement_adjustments` | roll into next settlement via `origin_settlement_id` |
 | 16 | Legacy MySQL export + field mapping | migration scripts (later) | pending |

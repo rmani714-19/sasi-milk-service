@@ -13,6 +13,7 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import Grid from '@mui/material/Grid2';
+import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import Step from '@mui/material/Step';
 import StepLabel from '@mui/material/StepLabel';
@@ -27,18 +28,23 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import PictureAsPdfOutlinedIcon from '@mui/icons-material/PictureAsPdfOutlined';
+import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
+import SendOutlinedIcon from '@mui/icons-material/SendOutlined';
+import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined';
 import PlaceOutlinedIcon from '@mui/icons-material/PlaceOutlined';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { litres, money } from '../lib/format';
-import { useRegions } from '../api/common';
+import { downloadFile, openPdf, useRegions } from '../api/common';
+import { batchStatusLabel, lineStatusLabel } from '../lib/paymentLabels';
 import { regionLabel } from '../lib/region';
 import { PageHeader } from '../components/PageHeader';
 import { StatusChip } from '../components/StatusChip';
 import { BankBalanceCard, OwnerApprovalDialog, PreValidationCard } from '../components/PaymentGates';
 import { ConfirmDialog, QueryBoundary, SectionTitle, useToast } from '../components/ui';
 import { useAuth } from '../lib/auth';
-import type { BankBalanceCheck, DailyCollectionRow, Payout, PreValidationReport, Region, SettlementDetail, SettlementItem } from '../api/types';
+import type { BankBalanceCheck, DailyCollectionRow, Payout, PreValidationReport, Region, SettlementDetail, SettlementItem, StatusHistoryEntry } from '../api/types';
 
 interface RegionGroup {
   key: string;
@@ -68,9 +74,10 @@ function groupByRegion(items: SettlementItem[], regions: Region[] | undefined): 
   });
 }
 
-const LIFECYCLE = ['Draft', 'Calculated', 'Verified', 'Bank balance', 'Pre-validation', 'Approved', 'Paid'] as const;
+/** The five steps a payment batch goes through, in plain words. */
+const WIZARD = ['Prepare', 'Review & verify', 'Generate bills', 'Approve', 'Bank & confirm'] as const;
 
-function stepIndex(status: string, balanceOk: boolean, preValReady: boolean): number {
+function wizardStep(status: string, allBilled: boolean): number {
   switch (status) {
     case 'DRAFT':
       return 0;
@@ -79,17 +86,33 @@ function stepIndex(status: string, balanceOk: boolean, preValReady: boolean): nu
     case 'UNDER_VERIFICATION':
       return 1;
     case 'VERIFIED':
-      return 2 + (balanceOk ? 1 : 0) + (balanceOk && preValReady ? 1 : 0);
+      return allBilled ? 3 : 2;
     case 'APPROVED':
     case 'PAYOUT_INITIATED':
     case 'PARTIALLY_PAID':
-      return 5;
+    case 'FAILED':
+      return 4;
     case 'PAID':
-      return 6;
+      return 5;
     default:
       return 0;
   }
 }
+
+function items_byId(s: SettlementDetail, itemId: number): number {
+  return s.items.find((i) => i.id === itemId)?.producerId ?? -1;
+}
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+type SortKey = 'producerId' | 'name' | 'net' | 'litres';
+
+const SORTERS: Record<SortKey, (a: SettlementItem, b: SettlementItem) => number> = {
+  producerId: (a, b) => (a.producerNumber ?? '').localeCompare(b.producerNumber ?? '', undefined, { numeric: true }),
+  name: (a, b) => (a.producerName ?? '').localeCompare(b.producerName ?? ''),
+  net: (a, b) => Number(b.netPayable) - Number(a.netPayable),
+  litres: (a, b) => Number(b.totalLitres) - Number(a.totalLitres),
+};
 
 export function SettlementDetailPage() {
   const { id } = useParams();
@@ -99,7 +122,14 @@ export function SettlementDetailPage() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [detailFor, setDetailFor] = useState<SettlementItem | null>(null);
   const [utrFor, setUtrFor] = useState<Payout | null>(null);
+  const [failFor, setFailFor] = useState<Payout | null>(null);
+  const [failReason, setFailReason] = useState('');
   const [utr, setUtr] = useState('');
+  const [paidOn, setPaidOn] = useState(todayIso());
+  const [submitOpen, setSubmitOpen] = useState(false);
+  const [submitDate, setSubmitDate] = useState(todayIso());
+  const [submitRef, setSubmitRef] = useState('');
+  const [submitNote, setSubmitNote] = useState('');
   const [balance, setBalanceCheck] = useState<BankBalanceCheck | null>(null);
   const [preVal, setPreVal] = useState<PreValidationReport | null>(null);
   const [approveOpen, setApproveOpen] = useState(false);
@@ -109,20 +139,64 @@ export function SettlementDetailPage() {
     queryFn: async () => (await api.get<SettlementDetail>(`/settlements/${id}`)).data,
   });
   const regions = useRegions();
+  // Review controls: show everyone, or one region/area; order by producer ID, name, amount or litres.
+  const [regionFilter, setRegionFilter] = useState(''); // '' = all, 'none' = no region, else region id
+  const [sortKey, setSortKey] = useState<SortKey>('producerId');
+  const [listMode, setListMode] = useState<'REGION' | 'LIST'>('REGION');
+
+  const visibleItems = useMemo(() => {
+    const all = detail.data?.items ?? [];
+    const filtered = all.filter((it) =>
+      regionFilter === '' ? true : regionFilter === 'none' ? it.regionId == null : String(it.regionId) === regionFilter,
+    );
+    return [...filtered].sort(SORTERS[sortKey]);
+  }, [detail.data, regionFilter, sortKey]);
   const groups = useMemo(
-    () => groupByRegion(detail.data?.items ?? [], regions.data),
-    [detail.data, regions.data],
+    () =>
+      listMode === 'LIST'
+        ? visibleItems.length
+          ? [{ key: 'all', label: 'All producers', items: visibleItems }]
+          : []
+        : groupByRegion(visibleItems, regions.data),
+    [visibleItems, regions.data, listMode],
   );
+  const regionOptions = useMemo(() => {
+    const ids = new Set((detail.data?.items ?? []).map((it) => it.regionId));
+    const byId = new Map((regions.data ?? []).map((r) => [r.id, r]));
+    return {
+      list: [...ids].filter((x): x is number => x != null).map((x) => ({ id: x, label: regionLabel(byId.get(x)) })),
+      hasNone: ids.has(undefined) || ids.has(null as unknown as undefined),
+    };
+  }, [detail.data, regions.data]);
+  const exportQuery = `${regionFilter === '' ? '' : `&regionId=${regionFilter === 'none' ? 0 : regionFilter}`}&sort=${
+    sortKey === 'producerId' ? 'producerId' : sortKey
+  }`;
   const payouts = useQuery({
     queryKey: ['payouts', id],
     queryFn: async () => (await api.get<Payout[]>('/payouts', { params: { settlementId: id } })).data,
     enabled: !!detail.data && detail.data.status !== 'DRAFT',
   });
 
+  const history = useQuery({
+    queryKey: ['settlement', id, 'history'],
+    queryFn: async () => (await api.get<StatusHistoryEntry[]>(`/settlements/${id}/history`)).data,
+    enabled: !!detail.data,
+  });
+
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['settlement', id] });
     qc.invalidateQueries({ queryKey: ['payouts', id] });
   };
+
+  const generateBills = useMutation({
+    mutationFn: async () => (await api.post<{ generated: number; total: number }>(`/settlements/${id}/bills/generate`)).data,
+    onSuccess: (d) => {
+      toast.success(d.generated > 0 ? `${d.generated} bill${d.generated === 1 ? '' : 's'} generated` : 'All bills were already generated');
+      invalidate();
+    },
+    onError: toast.fromError,
+  });
+  const fileJob = (job: () => Promise<void>) => job().catch(toast.fromError);
 
   const lifecycle = useMutation({
     mutationFn: async ({ path }: { path: string; ok: string }) =>
@@ -160,10 +234,13 @@ export function SettlementDetailPage() {
     onError: toast.fromError,
   });
 
+  /** Records the hand-over to the bank and lists the producers to pay. Nothing is sent to any bank from here. */
   const initiatePayouts = useMutation({
-    mutationFn: async () => (await api.post(`/settlements/${id}/payouts`)).data,
-    onSuccess: () => {
-      toast.success('Payouts initiated');
+    mutationFn: async (body?: { submittedOn: string; bankReference?: string; note?: string }) =>
+      (await api.post(`/settlements/${id}/payouts`, body)).data,
+    onSuccess: (_d, v) => {
+      toast.success(v ? 'Marked as submitted to bank' : 'Payment list refreshed');
+      setSubmitOpen(false);
       invalidate();
     },
     onError: toast.fromError,
@@ -183,33 +260,52 @@ export function SettlementDetailPage() {
   return (
     <QueryBoundary query={detail}>
       {(s) => {
-        const busy = lifecycle.isPending || initiatePayouts.isPending || verifyItem.isPending || verifyRegion.isPending;
+        const busy = lifecycle.isPending || initiatePayouts.isPending || verifyItem.isPending || verifyRegion.isPending || generateBills.isPending;
         const legacyAll = s.paymentFrequency === 'ALL';
         const balanceOk =
           !!balance?.sufficient && Number(balance.requiredAmount) === Number(s.totalNetPayable);
         const preValReady = preVal?.result === 'READY_FOR_APPROVAL';
-        const active = stepIndex(s.status, balanceOk, preValReady);
         const terminal = s.status === 'CANCELLED' || s.status === 'FAILED';
         const preApproval = ['CALCULATED', 'REVIEWED', 'UNDER_VERIFICATION', 'VERIFIED'].includes(s.status);
         const canApprove = s.status === 'VERIFIED' || (legacyAll && s.status === 'REVIEWED');
         const showGates = ['VERIFIED', 'APPROVED', 'PAYOUT_INITIATED', 'PARTIALLY_PAID', 'PAID', 'FAILED'].includes(s.status)
           || (legacyAll && s.status === 'REVIEWED');
         const gatesPass = legacyAll && s.status === 'REVIEWED' ? true : balanceOk && preValReady;
+        const canBill = ['VERIFIED', 'APPROVED', 'PAYOUT_INITIATED', 'PARTIALLY_PAID', 'PAID'].includes(s.status);
+        const allBilled = s.totalProducers > 0 && s.billsGenerated >= s.totalProducers;
+        const active = wizardStep(s.status, allBilled);
+        const hasLines = s.totalProducers > 0 && s.status !== 'DRAFT' && s.status !== 'CANCELLED';
+        const producerNames = new Map(
+          s.items.map((i) => [i.producerId, `${i.producerNumber ?? ''} · ${i.producerName ?? `Producer #${i.producerId}`}`] as const),
+        );
         return (
           <>
             <PageHeader
               title={s.settlementNumber}
-              subtitle={`${s.paymentFrequency === 'ALL' ? '' : s.paymentFrequency + ' · '}${s.periodStart} → ${s.periodEnd} · rounding ${s.roundingMode}/${s.roundingScale}`}
-              action={<StatusChip status={s.status} />}
+              subtitle={`${s.paymentFrequency === 'ALL' ? '' : s.paymentFrequency + ' · '}${s.regionId != null ? regionLabel(regions.data?.find((r) => r.id === s.regionId)) + ' · ' : ''}${s.periodStart} → ${s.periodEnd} · rounding ${s.roundingMode}/${s.roundingScale}`}
+              action={<StatusChip status={s.status} label={batchStatusLabel(s.status)} />}
             />
 
             <Card sx={{ mb: 3 }}>
               <CardContent>
-                <Stepper activeStep={active} alternativeLabel>
-                  {LIFECYCLE.map((label, i) => (
+                <Stepper activeStep={terminal ? 0 : active} alternativeLabel>
+                  {WIZARD.map((label, i) => (
                     <Step key={label}>
-                      <StepLabel error={terminal && i === active}>
-                        {label === 'Verified' && s.status === 'UNDER_VERIFICATION' ? 'Verifying…' : label}
+                      <StepLabel
+                        error={terminal && i === active}
+                        optional={
+                          i === 4 && ['APPROVED', 'PAYOUT_INITIATED', 'PARTIALLY_PAID'].includes(s.status) ? (
+                            <Typography variant="caption" color="text.secondary">
+                              {s.status === 'APPROVED' ? 'Submit to bank' : 'Confirm payments'}
+                            </Typography>
+                          ) : i === 1 && s.status === 'UNDER_VERIFICATION' ? (
+                            <Typography variant="caption" color="text.secondary">
+                              {s.verifiedCount}/{s.totalProducers} verified
+                            </Typography>
+                          ) : undefined
+                        }
+                      >
+                        {label}
                       </StepLabel>
                     </Step>
                   ))}
@@ -249,12 +345,48 @@ export function SettlementDetailPage() {
                   Approve
                 </Button>
               )}
-              {['APPROVED', 'PAYOUT_INITIATED', 'PARTIALLY_PAID', 'FAILED'].includes(s.status) &&
-                can('APPROVE_SETTLEMENT') && (
-                  <Button variant="contained" disabled={busy} onClick={() => initiatePayouts.mutate()}>
-                    Initiate payouts
+              {canBill && !allBilled && (can('GENERATE_SETTLEMENT') || can('GENERATE_BILLS')) && (
+                <Button variant="outlined" startIcon={<ReceiptLongOutlinedIcon />} disabled={busy} onClick={() => generateBills.mutate()}>
+                  Generate bills
+                </Button>
+              )}
+              {allBilled && (
+                <Button
+                  variant="outlined"
+                  startIcon={<PictureAsPdfOutlinedIcon />}
+                  onClick={() => fileJob(() => downloadFile(`/settlements/${id}/bills`, `${s.settlementNumber}-bills.pdf`))}
+                >
+                  Download all bills
+                </Button>
+              )}
+              {hasLines && (
+                <>
+                  <Button
+                    variant="outlined"
+                    startIcon={<PictureAsPdfOutlinedIcon />}
+                    onClick={() => fileJob(() => downloadFile(`/reports/settlement/${id}/summary?format=pdf${exportQuery}`, `${s.settlementNumber}-summary.pdf`))}
+                  >
+                    Summary PDF
                   </Button>
-                )}
+                  <Button
+                    variant="outlined"
+                    startIcon={<TableChartOutlinedIcon />}
+                    onClick={() => fileJob(() => downloadFile(`/reports/settlement/${id}/summary?format=xlsx${exportQuery}`, `${s.settlementNumber}-summary.xlsx`))}
+                  >
+                    Summary Excel
+                  </Button>
+                </>
+              )}
+              {s.status === 'APPROVED' && (can('APPROVE_SETTLEMENT') || can('SUBMIT_TO_BANK')) && (
+                <Button variant="contained" startIcon={<SendOutlinedIcon />} disabled={busy} onClick={() => setSubmitOpen(true)}>
+                  Mark as submitted to bank
+                </Button>
+              )}
+              {['PAYOUT_INITIATED', 'PARTIALLY_PAID', 'FAILED'].includes(s.status) && (can('APPROVE_SETTLEMENT') || can('SUBMIT_TO_BANK')) && (
+                <Button variant="outlined" disabled={busy} onClick={() => initiatePayouts.mutate(undefined)}>
+                  Refresh payment list
+                </Button>
+              )}
               {['DRAFT', 'CALCULATED', 'REVIEWED', 'UNDER_VERIFICATION', 'VERIFIED'].includes(s.status) &&
                 can('GENERATE_SETTLEMENT') && (
                   <Button color="error" variant="outlined" disabled={busy} onClick={() => setConfirmCancel(true)}>
@@ -272,6 +404,7 @@ export function SettlementDetailPage() {
                 ['Deductions', money(s.totalDeduction), false],
                 ['Advance recovery', money(s.totalAdvanceRecovery), false],
                 ['Verified', `${s.verifiedCount}/${s.totalProducers}`, false],
+                ['Bills generated', `${s.billsGenerated}/${s.totalProducers}`, false],
                 ['Net payable', money(s.totalNetPayable), true],
               ].map(([k, v, emphasize]) => (
                 <Grid size={{ xs: 6, md: 3 }} key={k as string}>
@@ -292,20 +425,90 @@ export function SettlementDetailPage() {
               ))}
             </Grid>
 
+            {s.bankSubmission && (
+              <Card sx={{ mb: 3, borderColor: 'primary.main' }}>
+                <CardContent>
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                    <SendOutlinedIcon fontSize="small" color="primary" />
+                    <Typography sx={{ fontWeight: 700 }}>Submitted to bank</Typography>
+                  </Stack>
+                  <Grid container spacing={2}>
+                    {[
+                      ['Submission date', s.bankSubmission.submittedOn],
+                      ['Bank batch reference', s.bankSubmission.bankReference || '—'],
+                      ['Producers', String(s.bankSubmission.producerCount)],
+                      ['Amount submitted', money(s.bankSubmission.totalAmount)],
+                      ['Note', s.bankSubmission.note || '—'],
+                    ].map(([k, v]) => (
+                      <Grid size={{ xs: 6, md: 'auto' }} key={k}>
+                        <Typography variant="caption" color="text.secondary" display="block">{k}</Typography>
+                        <Typography variant="body2" fontWeight={600}>{v}</Typography>
+                      </Grid>
+                    ))}
+                  </Grid>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    This is a record only — the payment itself is made through your bank. Confirm each producer below once the bank has paid.
+                  </Typography>
+                </CardContent>
+              </Card>
+            )}
+
             <SectionTitle>Producer verification</SectionTitle>
             {groups.length === 0 ? (
               <Card sx={{ mb: 4 }}>
                 <CardContent>
                   <Typography color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
-                    No lines yet — calculate the settlement.
+                    {s.items.length > 0 ? 'No producers match this filter.' : 'No lines yet — calculate the settlement.'}
                   </Typography>
                 </CardContent>
               </Card>
             ) : (
               <Box sx={{ mb: 4 }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                  Grouped by region — review and verify each area, then approve the whole run once, at the bottom.
-                </Typography>
+                <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
+                  <TextField
+                    select
+                    size="small"
+                    label="Region / area"
+                    value={regionFilter}
+                    onChange={(e) => setRegionFilter(e.target.value)}
+                    sx={{ width: 200, flexShrink: 0 }}
+                  >
+                    <MenuItem value="">All regions</MenuItem>
+                    {regionOptions.list.map((r) => (
+                      <MenuItem key={r.id} value={String(r.id)}>
+                        {r.label}
+                      </MenuItem>
+                    ))}
+                    {regionOptions.hasNone && <MenuItem value="none">No region assigned</MenuItem>}
+                  </TextField>
+                  <TextField
+                    select
+                    size="small"
+                    label="Order by"
+                    value={sortKey}
+                    onChange={(e) => setSortKey(e.target.value as SortKey)}
+                    sx={{ width: 200, flexShrink: 0 }}
+                  >
+                    <MenuItem value="producerId">Producer ID</MenuItem>
+                    <MenuItem value="name">Producer name</MenuItem>
+                    <MenuItem value="net">Net payable (highest first)</MenuItem>
+                    <MenuItem value="litres">Litres (highest first)</MenuItem>
+                  </TextField>
+                  <TextField
+                    select
+                    size="small"
+                    label="View"
+                    value={listMode}
+                    onChange={(e) => setListMode(e.target.value as 'REGION' | 'LIST')}
+                    sx={{ width: 200, flexShrink: 0 }}
+                  >
+                    <MenuItem value="REGION">Grouped by region</MenuItem>
+                    <MenuItem value="LIST">One full list</MenuItem>
+                  </TextField>
+                  <Typography variant="caption" color="text.secondary">
+                    Showing {visibleItems.length} of {s.items.length} producers · the summary download follows this filter
+                  </Typography>
+                </Stack>
                 {groups.map((g) => {
                   const groupVerified = g.items.filter((it) => it.verificationStatus === 'VERIFIED').length;
                   const groupLitres = g.items.reduce((sum, it) => sum + Number(it.totalLitres), 0);
@@ -348,7 +551,7 @@ export function SettlementDetailPage() {
                                 );
                               }}
                             >
-                              {verifyRegion.isPending ? 'Verifying…' : 'Verify all in this region'}
+                              {verifyRegion.isPending ? 'Verifying…' : g.key === 'all' ? 'Verify all shown' : 'Verify all in this region'}
                             </Button>
                           )}
                         </Stack>
@@ -366,6 +569,7 @@ export function SettlementDetailPage() {
                                 <TableCell align="right">Advance</TableCell>
                                 <TableCell align="right">Net payable</TableCell>
                                 <TableCell>Verification</TableCell>
+                                <TableCell>Bill</TableCell>
                                 <TableCell>Payment</TableCell>
                                 <TableCell align="right">Action</TableCell>
                               </TableRow>
@@ -400,13 +604,43 @@ export function SettlementDetailPage() {
                                       )}
                                     </TableCell>
                                     <TableCell>
-                                      <StatusChip status={it.paymentStatus} />
+                                      {it.billNumber ? (
+                                        <Typography variant="caption" sx={{ fontWeight: 600 }}>{it.billNumber}</Typography>
+                                      ) : (
+                                        <Typography variant="caption" color="text.secondary">Not generated</Typography>
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      <StatusChip status={it.paymentStatus} label={lineStatusLabel(it.paymentStatus)} />
+                                      {it.paymentReference && (
+                                        <Typography variant="caption" color="text.secondary" display="block">
+                                          Ref {it.paymentReference}
+                                        </Typography>
+                                      )}
                                     </TableCell>
                                     <TableCell align="right">
                                       <Stack direction="row" spacing={0.5} justifyContent="flex-end">
                                         <Button size="small" onClick={() => setDetailFor(it)}>
                                           View
                                         </Button>
+                                        <Button
+                                          size="small"
+                                          onClick={() => fileJob(() => openPdf(`/settlements/${id}/items/${it.id}/bill`))}
+                                        >
+                                          {it.billNumber ? 'Bill' : 'Preview bill'}
+                                        </Button>
+                                        {it.billNumber && (
+                                          <Button
+                                            size="small"
+                                            onClick={() =>
+                                              fileJob(() =>
+                                                downloadFile(`/settlements/${id}/items/${it.id}/bill?download=true`, `${it.billNumber}.pdf`),
+                                              )
+                                            }
+                                          >
+                                            PDF
+                                          </Button>
+                                        )}
                                         {preApproval && can('VERIFY_PAYMENT') &&
                                           (verified && !drift ? (
                                             <Button
@@ -457,47 +691,67 @@ export function SettlementDetailPage() {
 
             {payouts.data && payouts.data.length > 0 && (
               <>
-                <SectionTitle>Payouts</SectionTitle>
+                <SectionTitle>Payment confirmation</SectionTitle>
                 <Card sx={{ overflowX: 'auto' }}>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
                         <TableCell>Producer</TableCell>
                         <TableCell align="right">Amount</TableCell>
-                        <TableCell>Provider</TableCell>
                         <TableCell>Status</TableCell>
-                        <TableCell>UTR</TableCell>
+                        <TableCell>Bank reference (UTR)</TableCell>
+                        <TableCell>Paid on</TableCell>
                         <TableCell />
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {payouts.data.map((p) => (
                         <TableRow key={p.id}>
-                          <TableCell>#{p.producerId}</TableCell>
+                          <TableCell>{producerNames.get(p.producerId) ?? `#${p.producerId}`}</TableCell>
                           <TableCell align="right" sx={{ fontWeight: 600 }}>
                             {money(p.amount)}
                           </TableCell>
-                          <TableCell>{p.provider}</TableCell>
                           <TableCell>
-                            <StatusChip status={p.status} />
+                            <StatusChip status={p.status} label={lineStatusLabel(p.status === 'SUCCESS' ? 'SUCCESS' : p.status)} />
                           </TableCell>
                           <TableCell>{p.utr ?? '—'}</TableCell>
+                          <TableCell>{p.settledAt ? p.settledAt.slice(0, 10) : '—'}</TableCell>
                           <TableCell align="right">
-                            {can('APPROVE_SETTLEMENT') && ['PROCESSING', 'INITIATED', 'PENDING'].includes(p.status) && (
-                              <Button
-                                size="small"
-                                onClick={() => {
-                                  setUtr('');
-                                  setUtrFor(p);
-                                }}
-                              >
-                                Mark paid
-                              </Button>
+                            {(can('APPROVE_SETTLEMENT') || can('CONFIRM_PAYMENT')) && ['PROCESSING', 'INITIATED', 'PENDING'].includes(p.status) && (
+                              <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                                <Button
+                                  size="small"
+                                  onClick={() => {
+                                    setUtr('');
+                                    setPaidOn(todayIso());
+                                    setUtrFor(p);
+                                  }}
+                                >
+                                  Confirm payment
+                                </Button>
+                                <Button
+                                  size="small"
+                                  color="error"
+                                  onClick={() => {
+                                    setFailReason('');
+                                    setFailFor(p);
+                                  }}
+                                >
+                                  Mark failed
+                                </Button>
+                              </Stack>
                             )}
-                            {can('APPROVE_SETTLEMENT') && p.status === 'FAILED' && (
-                              <Button size="small" onClick={() => payoutAction(p.id, 'retry').catch(toast.fromError)}>
-                                Retry
-                              </Button>
+                            {(can('APPROVE_SETTLEMENT') || can('CONFIRM_PAYMENT')) && p.status === 'FAILED' && (
+                              <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
+                                {p.failureReason && (
+                                  <Typography variant="caption" color="error">
+                                    {p.failureReason}
+                                  </Typography>
+                                )}
+                                <Button size="small" onClick={() => payoutAction(p.id, 'retry').catch(toast.fromError)}>
+                                  Put back on bank list
+                                </Button>
+                              </Stack>
                             )}
                           </TableCell>
                         </TableRow>
@@ -508,7 +762,83 @@ export function SettlementDetailPage() {
               </>
             )}
 
+            {history.data && history.data.length > 0 && (
+              <>
+                <SectionTitle>Activity</SectionTitle>
+                <Card sx={{ mb: 3 }}>
+                  <CardContent>
+                    <Stack spacing={1.25}>
+                      {history.data.slice(0, 12).map((h) => (
+                        <Stack key={h.id} direction="row" spacing={2} alignItems="baseline" sx={{ flexWrap: 'wrap' }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ minWidth: 130 }}>
+                            {new Date(h.changedAt).toLocaleString()}
+                          </Typography>
+                          <Typography variant="body2">
+                            {h.subjectType === 'ITEM'
+                              ? `${producerNames.get(items_byId(s, h.subjectId)) ?? 'Producer'}: ${h.fromStatus ? lineStatusLabel(h.fromStatus) + ' → ' : ''}${lineStatusLabel(h.toStatus)}`
+                              : h.fromStatus && h.fromStatus !== h.toStatus
+                                ? `Batch: ${batchStatusLabel(h.fromStatus)} → ${batchStatusLabel(h.toStatus)}`
+                                : `Batch: ${h.note ?? batchStatusLabel(h.toStatus)}`}
+                            {h.note && h.fromStatus !== h.toStatus ? ` — ${h.note}` : ''}
+                          </Typography>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  </CardContent>
+                </Card>
+              </>
+            )}
+
             <ProducerBreakdownDialog settlementId={id!} item={detailFor} onClose={() => setDetailFor(null)} />
+
+            <Dialog open={submitOpen} onClose={() => setSubmitOpen(false)} fullWidth maxWidth="xs">
+              <DialogTitle>Mark as submitted to bank</DialogTitle>
+              <DialogContent>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2, mt: 0.5 }}>
+                  Use this after you have given the payment list to your bank (portal upload, cheque or letter).
+                  Nothing is sent from this app — it only records that the batch went to the bank.
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 2 }}>
+                  <b>{s.settlementNumber}</b> · {s.totalProducers} producers · <b>{money(s.totalNetPayable)}</b>
+                </Typography>
+                <Stack spacing={2}>
+                  <TextField
+                    label="Submission date"
+                    type="date"
+                    value={submitDate}
+                    onChange={(e) => setSubmitDate(e.target.value)}
+                    slotProps={{ inputLabel: { shrink: true } }}
+                  />
+                  <TextField
+                    label="Bank batch reference (optional)"
+                    value={submitRef}
+                    onChange={(e) => setSubmitRef(e.target.value)}
+                  />
+                  <TextField label="Note (optional)" value={submitNote} onChange={(e) => setSubmitNote(e.target.value)} />
+                </Stack>
+                {!allBilled && (
+                  <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 1.5 }}>
+                    Bills have not been generated for every producer yet.
+                  </Typography>
+                )}
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setSubmitOpen(false)}>Cancel</Button>
+                <Button
+                  variant="contained"
+                  disabled={!submitDate || initiatePayouts.isPending}
+                  onClick={() =>
+                    initiatePayouts.mutate({
+                      submittedOn: submitDate,
+                      bankReference: submitRef.trim() || undefined,
+                      note: submitNote.trim() || undefined,
+                    })
+                  }
+                >
+                  {initiatePayouts.isPending ? 'Saving…' : 'Mark as submitted'}
+                </Button>
+              </DialogActions>
+            </Dialog>
 
             <OwnerApprovalDialog
               open={approveOpen}
@@ -537,28 +867,67 @@ export function SettlementDetailPage() {
               onClose={() => setConfirmCancel(false)}
             />
 
+            <Dialog open={!!failFor} onClose={() => setFailFor(null)} fullWidth maxWidth="xs">
+              <DialogTitle>Mark payment as failed</DialogTitle>
+              <DialogContent>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2, mt: 0.5 }}>
+                  {failFor ? producerNames.get(failFor.producerId) ?? `Producer #${failFor.producerId}` : ''} ·{' '}
+                  {failFor ? money(failFor.amount) : ''} — use this when the bank rejected or returned the payment.
+                </Typography>
+                <TextField label="What went wrong?" value={failReason} onChange={(e) => setFailReason(e.target.value)} autoFocus />
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setFailFor(null)}>Cancel</Button>
+                <Button
+                  variant="contained"
+                  color="error"
+                  disabled={!failReason.trim()}
+                  onClick={() => {
+                    const p = failFor;
+                    setFailFor(null);
+                    if (p) payoutAction(p.id, 'mark-failed', { reason: failReason.trim() }).catch(toast.fromError);
+                  }}
+                >
+                  Mark failed
+                </Button>
+              </DialogActions>
+            </Dialog>
+
             <Dialog open={!!utrFor} onClose={() => setUtrFor(null)} fullWidth maxWidth="xs">
-              <DialogTitle>Mark payout as paid</DialogTitle>
+              <DialogTitle>Confirm payment</DialogTitle>
               <DialogContent>
                 <Box sx={{ mb: 2, mt: 0.5 }}>
                   <Typography variant="body2" color="text.secondary">
-                    Producer #{utrFor?.producerId} · {utrFor ? money(utrFor.amount) : ''}
+                    {utrFor ? producerNames.get(utrFor.producerId) ?? `Producer #${utrFor.producerId}` : ''} ·{' '}
+                    {utrFor ? money(utrFor.amount) : ''}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Confirm only after your bank has paid this producer.
                   </Typography>
                 </Box>
-                <TextField label="Bank UTR / reference" value={utr} onChange={(e) => setUtr(e.target.value)} autoFocus />
+                <Stack spacing={2}>
+                  <TextField label="Bank transaction reference (UTR)" value={utr} onChange={(e) => setUtr(e.target.value)} autoFocus />
+                  <TextField
+                    label="Payment date"
+                    type="date"
+                    value={paidOn}
+                    onChange={(e) => setPaidOn(e.target.value)}
+                    slotProps={{ inputLabel: { shrink: true } }}
+                  />
+                </Stack>
               </DialogContent>
               <DialogActions>
                 <Button onClick={() => setUtrFor(null)}>Cancel</Button>
                 <Button
                   variant="contained"
-                  disabled={!utr.trim()}
+                  disabled={!utr.trim() || !paidOn}
                   onClick={() => {
                     const p = utrFor;
                     setUtrFor(null);
-                    if (p) payoutAction(p.id, 'mark-paid', { utr: utr.trim() }).catch(toast.fromError);
+                    if (p) payoutAction(p.id, 'mark-paid', { utr: utr.trim(), paidOn }).catch(toast.fromError);
                   }}
                 >
-                  Mark paid
+                  Confirm payment
                 </Button>
               </DialogActions>
             </Dialog>

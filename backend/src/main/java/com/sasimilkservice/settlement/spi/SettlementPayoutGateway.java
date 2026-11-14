@@ -13,6 +13,12 @@ public interface SettlementPayoutGateway {
     /** @throws com.sasimilkservice.common.error.BusinessRuleException if not APPROVED */
     ApprovedSettlement requireApprovedForPayout(long settlementId);
 
+    /**
+     * Record the paperwork for handing the batch to the bank (date, optional bank reference).
+     * No money moves — the owner pays through the bank and confirms each line manually.
+     */
+    void recordBankSubmission(long settlementId, java.time.LocalDate submittedOn, String reference, String note);
+
     void markPayoutInitiated(long settlementId);
 
     void updateItemPaymentStatus(long settlementItemId, ItemPaymentStatus status, String reference);

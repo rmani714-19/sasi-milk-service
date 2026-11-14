@@ -47,6 +47,12 @@ public class DriverSalaryItem extends AuditableEntity {
     @Column(name = "other_earnings", nullable = false)
     private BigDecimal otherEarnings = BigDecimal.ZERO;
 
+    // informational snapshots taken when the batch is calculated (not part of the pay calculation)
+    @Column(name = "route_litres", nullable = false)
+    private BigDecimal routeLitres = BigDecimal.ZERO;
+    @Column(name = "vehicle_expenses", nullable = false)
+    private BigDecimal vehicleExpenses = BigDecimal.ZERO;
+
     // deductions
     @Column(name = "salary_advance", nullable = false)
     private BigDecimal salaryAdvance = BigDecimal.ZERO;

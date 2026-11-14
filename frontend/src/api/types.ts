@@ -101,6 +101,10 @@ export interface SettlementSummary {
   totalProducers: number;
   totalLitres: number;
   totalNetPayable: number;
+  /** Set when the batch pays only one region/area. */
+  regionId?: number | null;
+  /** Payment-module status name (DRAFT, UNDER_REVIEW, READY_FOR_BANK, SUBMITTED_TO_BANK, COMPLETED …). */
+  specStatus?: string;
 }
 
 export interface SettlementItem {
@@ -130,6 +134,9 @@ export interface SettlementItem {
   roundOff: number;
   netPayable: number;
   paymentStatus: string;
+  billNumber?: string | null;
+  paymentReference?: string | null;
+  specStatus?: string;
 }
 
 export interface DailyCollectionRow {
@@ -155,7 +162,31 @@ export interface SettlementDetail extends SettlementSummary {
   totalAdvanceRecovery: number;
   totalAdjustment: number;
   totalRoundOff: number;
+  billsGenerated: number;
+  bankSubmission?: BankSubmission | null;
   items: SettlementItem[];
+}
+
+/** The record of handing a payment batch to the bank — nothing is sent from the app. */
+export interface BankSubmission {
+  submittedOn: string;
+  bankReference?: string | null;
+  note?: string | null;
+  producerCount: number;
+  totalAmount: number;
+  submittedBy?: number | null;
+  createdAt: string;
+}
+
+export interface StatusHistoryEntry {
+  id: number;
+  subjectType: 'SETTLEMENT' | 'ITEM';
+  subjectId: number;
+  fromStatus?: string | null;
+  toStatus: string;
+  note?: string | null;
+  changedBy?: number | null;
+  changedAt: string;
 }
 
 export interface Payout {
@@ -193,6 +224,8 @@ export interface Driver {
   branchName?: string;
   bankComplete: boolean;
   bankUpdatedAt?: string;
+  /** Regions (areas) the driver collects from. */
+  routeRegionIds?: number[];
 }
 
 export interface DriverBankDetails {
@@ -229,6 +262,9 @@ export interface SalaryItem {
   paidAt?: string;
   failureReason?: string;
   note?: string;
+  /** Litres collected on the driver's route in the month (snapshot at calculation). */
+  routeLitres?: number;
+  vehicleExpenses?: number;
 }
 
 export interface SalaryBatchSummary {
@@ -252,6 +288,7 @@ export interface SalaryBatchDetail extends SalaryBatchSummary {
   reviewedAt?: string;
   cancelledAt?: string;
   items: SalaryItem[];
+  bankSubmission?: { submittedOn: string; bankReference?: string | null; note?: string | null; driverCount: number; totalAmount: number } | null;
 }
 
 export type VehicleType = 'CAR' | 'VAN' | 'MINI_TRUCK' | 'TRUCK' | 'OTHER';

@@ -32,12 +32,13 @@ import { api } from '../../lib/api';
 import { money } from '../../lib/format';
 import { useAuth } from '../../lib/auth';
 import { useProducerLookup } from '../../api/common';
+import { lineStatusLabel } from '../../lib/paymentLabels';
 import { PageHeader } from '../../components/PageHeader';
 import { StatusChip } from '../../components/StatusChip';
 import { FormSection } from '../../components/FormSection';
 import { EmptyState, TableSkeleton, useToast } from '../../components/ui';
 import { PaymentReceipt } from '../../components/PaymentReceipt';
-import type { CenterSettings, Expense, ExpenseCategory, Payout, PaymentFlag, PaymentFlagSubjectType } from '../../api/types';
+import type { CenterSettings, Expense, ExpenseCategory, Payout, PaymentFlag, PaymentFlagSubjectType, SettlementSummary } from '../../api/types';
 
 interface SalaryPaymentRow {
   itemId: number;
@@ -120,6 +121,10 @@ export function PaymentHistoryPage() {
     queryKey: ['payouts', 'all'],
     queryFn: async () => (await api.get<Payout[]>('/payouts')).data,
   });
+  const batches = useQuery({
+    queryKey: ['settlements'],
+    queryFn: async () => (await api.get<SettlementSummary[]>('/settlements')).data,
+  });
   const salary = useQuery({
     queryKey: ['salary', 'payments'],
     queryFn: async () => (await api.get<SalaryPaymentRow[]>('/salary-batches/payments')).data,
@@ -139,6 +144,12 @@ export function PaymentHistoryPage() {
     return m;
   }, [flags.data]);
 
+  const batchLabel = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const b of batches.data ?? []) m.set(b.internalId, `${b.settlementNumber} · ${b.periodStart} → ${b.periodEnd}`);
+    return m;
+  }, [batches.data]);
+
   const rows = useMemo<Row[]>(() => {
     const farmer: Row[] = (payouts.data ?? []).map((p) => ({
       key: `f-${p.id}`,
@@ -147,7 +158,7 @@ export function PaymentHistoryPage() {
       subjectId: p.id,
       reference: p.providerPayoutId ?? `PO-${p.id}`,
       recipient: producers.label(p.producerId),
-      period: `settlement #${p.settlementId}`,
+      period: batchLabel.get(p.settlementId) ?? `batch #${p.settlementId}`,
       amount: Number(p.amount),
       method: p.provider === 'MANUAL' ? 'BANK_TRANSFER' : p.provider,
       status: p.status,
@@ -186,7 +197,7 @@ export function PaymentHistoryPage() {
       txnRef: e.paymentReference ?? '—',
     }));
     return [...farmer, ...driver, ...expense].sort((a, b) => ((a.paidAt ?? '') < (b.paidAt ?? '') ? 1 : -1));
-  }, [payouts.data, salary.data, expenses.data, producers]);
+  }, [payouts.data, salary.data, expenses.data, producers, batchLabel]);
 
   const filtered = rows.filter((r) => {
     if (type && r.type !== type) return false;
@@ -209,6 +220,23 @@ export function PaymentHistoryPage() {
   const flaggedCount = flags.data?.length ?? 0;
 
   const loading = payouts.isLoading || salary.isLoading || expenses.isLoading;
+
+  /** Download the rows currently shown (after filters) as CSV — opens in Excel. */
+  const exportCsv = () => {
+    const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+    const head = ['Reference', 'Type', 'Recipient', 'Period', 'Amount', 'Method', 'Status', 'Bank reference (UTR)', 'Paid on', 'Failure reason'];
+    const lines = filtered.map((r) =>
+      [r.reference, TYPE_LABEL[r.type], r.recipient, r.period, r.amount.toFixed(2), r.method.replace(/_/g, ' '),
+        r.type === 'FARMER' ? lineStatusLabel(r.status) : r.status, r.txnRef, r.paidAt ? r.paidAt.slice(0, 10) : '', r.failureReason ?? '']
+        .map(esc).join(','),
+    );
+    const blob = new Blob(['\uFEFF' + [head.map(esc).join(','), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `payment-activity-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
 
   const printReceipt = (r: Row) => {
     setReceipt({
@@ -266,7 +294,7 @@ export function PaymentHistoryPage() {
               <MenuItem value="">All statuses</MenuItem>
               {['PENDING', 'PROCESSING', 'INITIATED', 'SUCCESS', 'PAID', 'FAILED', 'ON_HOLD', 'CANCELLED'].map((s) => (
                 <MenuItem key={s} value={s}>
-                  {s}
+                  {lineStatusLabel(s)}
                 </MenuItem>
               ))}
             </TextField>
@@ -290,7 +318,7 @@ export function PaymentHistoryPage() {
             />
             <TextField
               size="small"
-              placeholder="Search reference / recipient"
+              placeholder="Search reference / producer / driver / bank ref"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               sx={{ minWidth: 220, flex: '1 1 220px' }}
@@ -300,6 +328,9 @@ export function PaymentHistoryPage() {
               control={<Switch size="small" checked={flaggedOnly} onChange={(e) => setFlaggedOnly(e.target.checked)} />}
               label="Flagged only"
             />
+            <Button variant="outlined" size="small" disabled={filtered.length === 0} onClick={exportCsv} sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+              Export CSV ({filtered.length})
+            </Button>
             {canAddExpense && (
               <Button
                 variant="contained"
@@ -350,7 +381,7 @@ export function PaymentHistoryPage() {
                       <TableCell>{r.method.replace(/_/g, ' ')}</TableCell>
                       <TableCell>
                         <Stack direction="row" spacing={0.5} alignItems="center">
-                          <StatusChip status={r.status} />
+                          <StatusChip status={r.status} label={r.type === 'FARMER' ? lineStatusLabel(r.status) : undefined} />
                           {flag && <Chip size="small" icon={<FlagOutlinedIcon sx={{ fontSize: 14 }} />} label="Flagged" color="error" variant="outlined" />}
                         </Stack>
                       </TableCell>
@@ -463,7 +494,7 @@ function TransactionDetailDialog({
       <DialogTitle>
         <Stack direction="row" spacing={1} alignItems="center">
           <span>{row.reference}</span>
-          <StatusChip status={row.status} />
+          <StatusChip status={row.status} label={row.type === 'FARMER' ? lineStatusLabel(row.status) : undefined} />
         </Stack>
       </DialogTitle>
       <DialogContent>

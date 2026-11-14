@@ -27,10 +27,13 @@ public class ReportController {
 
     private final ReportService reports;
     private final ReportExporter exporter;
+    private final com.sasimilkservice.report.service.StatementPdfRenderer statementPdf;
 
-    public ReportController(ReportService reports, ReportExporter exporter) {
+    public ReportController(ReportService reports, ReportExporter exporter,
+                            com.sasimilkservice.report.service.StatementPdfRenderer statementPdf) {
         this.reports = reports;
         this.exporter = exporter;
+        this.statementPdf = statementPdf;
     }
 
     @GetMapping("/daily-collection")
@@ -86,6 +89,78 @@ public class ReportController {
         return export(report, format, "settlement-" + settlementId + "-payments");
     }
 
+    @GetMapping("/payment-dashboard")
+    @PreAuthorize("hasAnyAuthority('VIEW_PAYMENTS','VIEW_REPORTS','GENERATE_REPORTS','VIEW_BASIC_REPORTS','EXPORT_REPORTS')")
+    public ReportService.PaymentDashboard paymentDashboard(@RequestParam LocalDate from, @RequestParam LocalDate to) {
+        return reports.paymentDashboard(from, to);
+    }
+
+    /** pending | bank-submissions | confirmations | incentives-deductions | period-summary */
+    @GetMapping("/payments/{kind}")
+    @PreAuthorize("hasAnyAuthority('VIEW_PAYMENTS','VIEW_REPORTS','GENERATE_REPORTS','VIEW_BASIC_REPORTS','EXPORT_REPORTS')")
+    public ResponseEntity<?> paymentReport(@PathVariable String kind, @RequestParam LocalDate from,
+                                           @RequestParam LocalDate to,
+                                           @RequestParam(defaultValue = "pdf") String format) {
+        return export(reports.paymentReport(kind, from, to), format, "payment-" + kind + "-" + from + "-" + to);
+    }
+
+    /** Consolidated producer-wise summary of one payment batch — the sheet used for the manual bank submission. */
+    @GetMapping("/settlement/{settlementId}/summary")
+    public ResponseEntity<?> settlementSummary(@PathVariable long settlementId,
+                                               @RequestParam(defaultValue = "pdf") String format,
+                                               @RequestParam(required = false) Long regionId,
+                                               @RequestParam(required = false) String sort) {
+        ReportService.BatchHeader h = reports.batchHeader(settlementId);
+        List<ReportService.BatchLine> lines = reports.batchLines(settlementId, regionId, sort);
+        java.math.BigDecimal litres = java.math.BigDecimal.ZERO, milk = litres, inc = litres, ded = litres,
+                adv = litres, adj = litres, net = litres;
+        List<List<Object>> rows = new java.util.ArrayList<>();
+        for (ReportService.BatchLine l : lines) {
+            litres = litres.add(l.litres());
+            milk = milk.add(l.milkAmount());
+            inc = inc.add(l.incentive());
+            ded = ded.add(l.deductions());
+            adv = adv.add(l.advanceRecovery());
+            adj = adj.add(l.adjustments());
+            net = net.add(l.netPayable());
+            rows.add(java.util.Arrays.<Object>asList(l.producerNumber(), l.producerName(), l.region(),
+                    l.litres(), l.milkAmount(), l.incentive(), l.deductions(), l.advanceRecovery(),
+                    l.adjustments(), l.netPayable(), l.billNumber() == null ? "" : l.billNumber(),
+                    friendlyStatus(l.paymentStatus()), l.utr() == null ? "" : l.utr()));
+        }
+        rows.add(java.util.Arrays.<Object>asList("TOTAL", "", "", litres, milk, inc, ded, adv, adj, net,
+                "", "", ""));
+        String kind = switch (h.frequency()) {
+            case "WEEKLY" -> "Weekly";
+            case "MONTHLY" -> "Monthly";
+            default -> "Payment";
+        };
+        String sub = "%s · %s to %s · %d producers · %d bills · %s%s".formatted(
+                h.number(), h.periodStart(), h.periodEnd(), h.producers(), h.bills(),
+                h.submittedOn() == null ? "Not yet submitted to bank"
+                        : "Submitted to bank on " + h.submittedOn()
+                        + (h.bankReference() == null ? "" : " (ref " + h.bankReference() + ")"),
+                " · Status: " + h.status().replace('_', ' ')
+                + (regionId == null ? "" : " · Area filter applied"));
+        TabularReport report = TabularReport.of(kind + " Farmer Payment Summary", sub,
+                List.of("Producer ID", "Name", "Region", "Litres", "Milk Amount", "Incentive", "Deductions",
+                        "Advance Recovery", "Adjustments", "Net Payable", "Bill No.", "Payment Status", "Bank Ref (UTR)"),
+                rows);
+        return export(report, format, h.number() + "-summary");
+    }
+
+    private static String friendlyStatus(String s) {
+        return switch (s) {
+            case "PENDING" -> "Pending";
+            case "INITIATED", "PROCESSING" -> "Submitted to bank";
+            case "SUCCESS" -> "Paid";
+            case "FAILED" -> "Failed";
+            case "ON_HOLD" -> "On hold";
+            case "CANCELLED" -> "Cancelled";
+            default -> s;
+        };
+    }
+
     @GetMapping("/producer-statement")
     public ResponseEntity<?> producerStatement(@RequestParam long producerId,
                                                @RequestParam LocalDate from,
@@ -95,20 +170,46 @@ public class ReportController {
         if (isJson(format)) {
             return ResponseEntity.ok(s);
         }
-        TabularReport report = TabularReport.of(
-                "Farmer Statement", "Farmer #%d · %s to %s".formatted(producerId, from, to),
-                List.of("Field", "Value"),
-                List.of(
-                        List.of("Total litres", s.totalLitres()),
-                        List.of("Milk value", s.totalMilkAmount()),
-                        List.of("Incentives", s.totalIncentive()),
-                        List.of("Collections", s.collectionCount()),
-                        List.of("Deductions", s.totalDeductions()),
-                        List.of("Advance taken", s.totalAdvance()),
-                        List.of("Advance recovered", s.advanceRecovered()),
-                        List.of("Advance outstanding", s.advanceOutstanding()),
-                        List.of("Total paid", s.totalPaid())));
-        return export(report, format, "farmer-" + producerId + "-statement");
+        ReportService.DetailedStatement d = reports.detailedStatement(producerId, from, to);
+        String base = "statement-" + d.producerNumber() + "-" + from + "-to-" + to;
+        if ("pdf".equalsIgnoreCase(format)) {
+            return file(statementPdf.render(reports.centerLine(), d), base + ".pdf", "application/pdf");
+        }
+        return export(statementTable(d), format, base);
+    }
+
+    /** Flat version for Excel / CSV: one row per collection, then the totals and money summary. */
+    private static TabularReport statementTable(ReportService.DetailedStatement d) {
+        List<List<Object>> rows = new java.util.ArrayList<>();
+        for (ReportService.StatementCollection c : d.collections()) {
+            rows.add(java.util.Arrays.<Object>asList(c.date().toString(),
+                    "MORNING".equals(c.shift()) ? "Morning" : "Evening", c.recordedAt(), c.collectionNumber(),
+                    c.litres(), c.fat(), c.snf(), c.rate(), c.milkAmount(), c.incentive(), c.total()));
+        }
+        rows.add(java.util.Arrays.<Object>asList("TOTAL", "", "", "", d.totalLitres(), null, null, d.averageRate(),
+                d.milkAmount(), d.incentive(), d.gross()));
+        rows.add(java.util.Arrays.<Object>asList("", "", "", "", null, null, null, null, null, null, null));
+        rows.add(java.util.Arrays.<Object>asList("Morning litres", "", "", "", d.morningLitres(), null, null, null, null, null, null));
+        rows.add(java.util.Arrays.<Object>asList("Evening litres", "", "", "", d.eveningLitres(), null, null, null, null, null, null));
+        rows.add(java.util.Arrays.<Object>asList("Gross earnings", "", "", "", null, null, null, null, null, null, d.gross()));
+        for (ReportService.StatementCharge c : d.deductions()) {
+            rows.add(java.util.Arrays.<Object>asList(c.name() + " deduction", "", "", "", null, null, null, null, null, null, c.amount().negate()));
+        }
+        rows.add(java.util.Arrays.<Object>asList("Advance taken in period", "", "", "", null, null, null, null, null, null, d.advanceTaken()));
+        rows.add(java.util.Arrays.<Object>asList("Advance recovered in period", "", "", "", null, null, null, null, null, null, d.advanceRecovered().negate()));
+        rows.add(java.util.Arrays.<Object>asList("Advance outstanding today", "", "", "", null, null, null, null, null, null, d.advanceOutstanding()));
+        for (ReportService.StatementPayment p : d.payments()) {
+            rows.add(java.util.Arrays.<Object>asList("Payment " + p.batch(), p.periodStart() + " to " + p.periodEnd(),
+                    p.billNumber() == null ? "" : p.billNumber(), p.status(), null, null, null, null, p.milk(),
+                    p.incentive(), p.netPayable()));
+        }
+        return TabularReport.of("Milk Collection Statement",
+                "%s (%s) · %s%s · %s to %s".formatted(d.producerName(), d.producerNumber(),
+                        d.region() == null ? "" : "Region " + d.region() + " · ", d.collectionDays() + " collection days",
+                        d.from(), d.to()),
+                List.of("Date", "Shift", "Time", "Collection No.", "Litres", "FAT", "SNF", "Rate / L",
+                        "Milk Amount", "Incentive", "Total"),
+                rows);
     }
 
     // ---- dispatch ----

@@ -28,7 +28,10 @@ import Typography from '@mui/material/Typography';
 import AddIcon from '@mui/icons-material/Add';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import { money } from '../../lib/format';
+import { money, litres } from '../../lib/format';
+import { batchStatusLabel } from '../../lib/paymentLabels';
+import { downloadFile, openPdf, useRegions } from '../../api/common';
+import { DriverAdvancesDialog, DriverRouteDialog, VehicleExpensesTab } from './DriverExtras';
 import * as V from '../../lib/validate';
 import { useAuth } from '../../lib/auth';
 import { PageHeader } from '../../components/PageHeader';
@@ -47,7 +50,7 @@ import type {
   VehicleStatus,
 } from '../../api/types';
 
-const LIFECYCLE = ['Draft', 'Calculated', 'Reviewed', 'Bank balance', 'Pre-validation', 'Approved', 'Paid'] as const;
+const LIFECYCLE = ['Draft', 'Calculated', 'Reviewed', 'Bank balance', 'Pre-validation', 'Approved', 'Submitted to bank', 'Paid'] as const;
 function stepIndex(s: string, balanceOk = false, preValReady = false) {
   switch (s) {
     case 'DRAFT':
@@ -57,11 +60,12 @@ function stepIndex(s: string, balanceOk = false, preValReady = false) {
     case 'REVIEWED':
       return 2 + (balanceOk ? 1 : 0) + (balanceOk && preValReady ? 1 : 0);
     case 'APPROVED':
+      return 6;
     case 'PAYMENT_INITIATED':
     case 'PARTIALLY_PAID':
-      return 5;
+      return 7;
     case 'PAID':
-      return 6;
+      return 8;
     default:
       return 0;
   }
@@ -72,12 +76,16 @@ export function DriverPaymentsPage() {
   const [tab, setTab] = useState(0);
   return (
     <>
-      <PageHeader title="Driver Salary" subtitle="Monthly driver salary — Calculate → Review → Approve → Pay → Confirm" />
+      <PageHeader
+        title="Driver Salary"
+        subtitle="Monthly driver salary with route litres, vehicle expenses and advances — Calculate → Review → Approve → Pay → Confirm"
+      />
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
         <Tab label="Salary Runs" />
         <Tab label="Drivers" />
+        <Tab label="Vehicle Expenses" />
       </Tabs>
-      {tab === 0 ? <SalaryRuns /> : <DriversTab />}
+      {tab === 0 ? <SalaryRuns /> : tab === 1 ? <DriversTab /> : <VehicleExpensesTab />}
     </>
   );
 }
@@ -95,6 +103,10 @@ function SalaryRuns() {
   const [balanceCheck, setBalanceCheck] = useState<BankBalanceCheck | null>(null);
   const [preVal, setPreVal] = useState<PreValidationReport | null>(null);
   const [approveOpen, setApproveOpen] = useState(false);
+  const [submitOpen, setSubmitOpen] = useState(false);
+  const [submitDate, setSubmitDate] = useState(new Date().toISOString().slice(0, 10));
+  const [submitRef, setSubmitRef] = useState('');
+  const [submitNote, setSubmitNote] = useState('');
 
   const batches = useQuery({
     queryKey: ['salary-batches'],
@@ -178,6 +190,23 @@ function SalaryRuns() {
     onError: toast.fromError,
   });
 
+  const submitMut = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post(`/salary-batches/${selectedId}/bank-submission`, {
+          submittedOn: submitDate,
+          bankReference: submitRef.trim() || undefined,
+          note: submitNote.trim() || undefined,
+        })
+      ).data,
+    onSuccess: () => {
+      toast.success('Marked as submitted to bank');
+      setSubmitOpen(false);
+      invalidate();
+    },
+    onError: toast.fromError,
+  });
+
   const d = detail.data;
   const editable = d && ['DRAFT', 'CALCULATED', 'REVIEWED'].includes(d.status);
   const payable = d && ['APPROVED', 'PAYMENT_INITIATED', 'PARTIALLY_PAID'].includes(d.status);
@@ -247,7 +276,7 @@ function SalaryRuns() {
                         · {b.periodMonth.slice(0, 7)}
                       </Typography>
                     </Typography>
-                    <StatusChip status={b.status} />
+                    <StatusChip status={b.status} label={batchStatusLabel(b.status)} />
                   </Stack>
                   <Stepper activeStep={stepIndex(b.status, balanceOk, preValReady)} alternativeLabel sx={{ mt: 2 }}>
                     {LIFECYCLE.map((s) => (
@@ -257,6 +286,11 @@ function SalaryRuns() {
                     ))}
                   </Stepper>
                   <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap', gap: 1 }}>
+                    {b.status === 'APPROVED' && !b.bankSubmission && (
+                      <Button variant="contained" disabled={submitMut.isPending} onClick={() => setSubmitOpen(true)}>
+                        Mark as submitted to bank
+                      </Button>
+                    )}
                     {['DRAFT', 'CALCULATED', 'REVIEWED'].includes(b.status) && (
                       <Button variant="contained" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate({ path: 'calculate', ok: 'Recalculated' })}>
                         {b.status === 'DRAFT' ? 'Calculate' : 'Recalculate'}
@@ -282,7 +316,37 @@ function SalaryRuns() {
                         Cancel
                       </Button>
                     )}
+                    {b.items.length > 0 && (
+                      <>
+                        <Button
+                          variant="outlined"
+                          onClick={() => downloadFile(`/salary-batches/${b.id}/statements`, `salary-statements-${b.batchNumber}.pdf`).catch(toast.fromError)}
+                        >
+                          All statements (PDF)
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          onClick={() => downloadFile(`/salary-batches/${b.id}/report?format=xlsx`, `driver-salary-${b.batchNumber}.xlsx`).catch(toast.fromError)}
+                        >
+                          Excel
+                        </Button>
+                      </>
+                    )}
                   </Stack>
+                  {b.bankSubmission && (
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                      Submitted to bank on <b>{b.bankSubmission.submittedOn}</b>
+                      {b.bankSubmission.bankReference ? ` · reference ${b.bankSubmission.bankReference}` : ''} ·{' '}
+                      {b.bankSubmission.driverCount} drivers · {money(b.bankSubmission.totalAmount)}. This is a record only —
+                      confirm each driver below once the bank has paid.
+                    </Alert>
+                  )}
+                  {['DRAFT', 'CALCULATED', 'REVIEWED'].includes(b.status) && (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+                      Calculate pulls in each driver's route litres, vehicle expenses and open advances (deducted from salary).
+                      Add advances in the Drivers tab and vehicle costs in the Vehicle Expenses tab before calculating.
+                    </Typography>
+                  )}
                 </CardContent>
               </Card>
 
@@ -335,8 +399,11 @@ function SalaryRuns() {
                           <TableCell align="right">Allow.</TableCell>
                           <TableCell align="right">OT</TableCell>
                           <TableCell align="right">Gross</TableCell>
+                          <TableCell align="right">Advance</TableCell>
                           <TableCell align="right">Deduct.</TableCell>
                           <TableCell align="right">Net</TableCell>
+                          <TableCell align="right">Route litres</TableCell>
+                          <TableCell align="right">Vehicle exp.</TableCell>
                           <TableCell>Status</TableCell>
                           <TableCell align="right">Action</TableCell>
                         </TableRow>
@@ -355,15 +422,24 @@ function SalaryRuns() {
                             <TableCell align="right">{money(it.allowances)}</TableCell>
                             <TableCell align="right">{money(it.overtime)}</TableCell>
                             <TableCell align="right">{money(it.grossAmount)}</TableCell>
+                            <TableCell align="right">{money(it.salaryAdvance)}</TableCell>
                             <TableCell align="right">{money(it.totalDeduction)}</TableCell>
                             <TableCell align="right" sx={{ fontWeight: 700 }}>
                               {money(it.netSalary)}
                             </TableCell>
+                            <TableCell align="right">{litres(it.routeLitres ?? 0)}</TableCell>
+                            <TableCell align="right">{money(it.vehicleExpenses ?? 0)}</TableCell>
                             <TableCell>
                               <StatusChip status={it.paymentStatus} />
                             </TableCell>
                             <TableCell align="right">
                               <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                                <Button
+                                  size="small"
+                                  onClick={() => openPdf(`/salary-batches/${b.id}/items/${it.id}/statement`).catch(toast.fromError)}
+                                >
+                                  Statement
+                                </Button>
                                 {editable && it.paymentStatus === 'PENDING' && (
                                   <Button size="small" onClick={() => setEditItem(it)}>
                                     Edit
@@ -411,6 +487,26 @@ function SalaryRuns() {
         />
       )}
 
+      <Dialog open={submitOpen} onClose={() => setSubmitOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Mark as submitted to bank</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2, mt: 0.5 }}>
+            Use this after giving the salary list to your bank. Nothing is sent from this app — it only records that the
+            batch went to the bank.
+          </Typography>
+          <Stack spacing={2}>
+            <TextField label="Submission date" type="date" value={submitDate} onChange={(e) => setSubmitDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+            <TextField label="Bank batch reference (optional)" value={submitRef} onChange={(e) => setSubmitRef(e.target.value)} />
+            <TextField label="Note (optional)" value={submitNote} onChange={(e) => setSubmitNote(e.target.value)} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSubmitOpen(false)}>Cancel</Button>
+          <Button variant="contained" disabled={!submitDate || submitMut.isPending} onClick={() => submitMut.mutate()}>
+            {submitMut.isPending ? 'Saving…' : 'Mark as submitted'}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <EditItemDialog item={editItem} busy={saveItem.isPending} onClose={() => setEditItem(null)} onSave={(body) => editItem && saveItem.mutate({ id: editItem.id, body })} />
       <PayDialog
         item={payItem}
@@ -626,6 +722,9 @@ function DriversTab() {
   const [dialog, setDialog] = useState<{ mode: 'add' } | { mode: 'edit'; row: Driver } | null>(null);
   const [deactivate, setDeactivate] = useState<Driver | null>(null);
   const [bankFor, setBankFor] = useState<Driver | null>(null);
+  const [routeFor, setRouteFor] = useState<Driver | null>(null);
+  const [advancesFor, setAdvancesFor] = useState<Driver | null>(null);
+  const regions = useRegions();
 
   const list = useQuery({ queryKey: ['drivers'], queryFn: async () => (await api.get<Driver[]>('/drivers')).data });
   const vehicles = useQuery({
@@ -672,7 +771,7 @@ function DriversTab() {
       <Card>
         <QueryBoundary
           query={list}
-          skeleton={<TableSkeleton cols={9} />}
+          skeleton={<TableSkeleton cols={10} />}
           empty={(d) => d.length === 0}
           emptyState={<EmptyState title="No drivers" description="Add drivers to run monthly salary." />}
         >
@@ -685,6 +784,7 @@ function DriversTab() {
                     <TableCell>Driver Name</TableCell>
                     <TableCell>Mobile</TableCell>
                     <TableCell>Vehicle</TableCell>
+                    <TableCell>Route</TableCell>
                     <TableCell>Salary</TableCell>
                     <TableCell>Bank</TableCell>
                     <TableCell>Account</TableCell>
@@ -699,6 +799,17 @@ function DriversTab() {
                       <TableCell>{row.name}</TableCell>
                       <TableCell>{row.mobile ?? '—'}</TableCell>
                       <TableCell>{vName(row.vehicleId)}</TableCell>
+                      <TableCell>
+                        {(row.routeRegionIds ?? []).length === 0 ? (
+                          <Chip size="small" color="warning" variant="outlined" label="Not set" />
+                        ) : (
+                          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                            {(row.routeRegionIds ?? []).map((rid) => (
+                              <Chip key={rid} size="small" variant="outlined" label={regions.data?.find((r) => r.id === rid)?.name ?? `#${rid}`} />
+                            ))}
+                          </Stack>
+                        )}
+                      </TableCell>
                       <TableCell>
                         {row.salaryType === 'PER_DAY'
                           ? `${money(row.perDayRate)}/day`
@@ -723,6 +834,12 @@ function DriversTab() {
                               View
                             </Button>
                           )}
+                          <Button size="small" onClick={() => setRouteFor(row)}>
+                            Route
+                          </Button>
+                          <Button size="small" onClick={() => setAdvancesFor(row)}>
+                            Advances
+                          </Button>
                           <Button size="small" onClick={() => setDialog({ mode: 'edit', row })}>
                             Edit
                           </Button>
@@ -751,6 +868,8 @@ function DriversTab() {
         onSave={(id, body) => save.mutate({ id, body })}
       />
       <BankViewDialog driver={bankFor} onClose={() => setBankFor(null)} />
+      <DriverRouteDialog driver={routeFor} onClose={() => setRouteFor(null)} />
+      <DriverAdvancesDialog driver={advancesFor} onClose={() => setAdvancesFor(null)} />
       <ConfirmDialog
         open={!!deactivate}
         title="Deactivate driver?"

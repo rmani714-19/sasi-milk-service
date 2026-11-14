@@ -4,7 +4,9 @@ import com.sasimilkservice.collection.spi.CollectionSettlementGateway.Settlement
 import com.sasimilkservice.producer.spi.ProducerDirectory.ProducerView;
 import com.sasimilkservice.settlement.domain.Settlement;
 import com.sasimilkservice.settlement.domain.SettlementAdjustment;
+import com.sasimilkservice.settlement.domain.SettlementBankSubmission;
 import com.sasimilkservice.settlement.domain.SettlementItem;
+import com.sasimilkservice.settlement.domain.SettlementStatusHistory;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -26,7 +28,9 @@ public final class SettlementDtos {
             @NotNull LocalDate periodStart,
             @NotNull LocalDate periodEnd,
             @Pattern(regexp = "^(WEEKLY|MONTHLY|ALL)$",
-                    message = "paymentFrequency must be WEEKLY, MONTHLY or ALL") String paymentFrequency) {
+                    message = "paymentFrequency must be WEEKLY, MONTHLY or ALL") String paymentFrequency,
+            /** Optional: pay only this region/area. Omit for every region. */
+            Long regionId) {
 
         public Settlement.PaymentFrequency frequency() {
             return paymentFrequency == null || paymentFrequency.isBlank()
@@ -53,12 +57,15 @@ public final class SettlementDtos {
             String status,
             int totalProducers,
             BigDecimal totalLitres,
-            BigDecimal totalNetPayable) {
+            BigDecimal totalNetPayable,
+            Long regionId,
+            String specStatus) {
 
         public static SettlementSummary from(Settlement s) {
             return new SettlementSummary(s.getPublicId().toString(), s.getId(), s.getSettlementNumber(),
                     s.getPaymentFrequency().name(), s.getPeriodStart(), s.getPeriodEnd(), s.getStatus().name(),
-                    s.getTotalProducers(), s.getTotalLitres(), s.getTotalNetPayable());
+                    s.getTotalProducers(), s.getTotalLitres(), s.getTotalNetPayable(), s.getRegionId(),
+                    SpecStatus.batch(s.getStatus()));
         }
     }
 
@@ -83,14 +90,19 @@ public final class SettlementDtos {
             BigDecimal totalAdjustment,
             BigDecimal totalRoundOff,
             BigDecimal totalNetPayable,
+            int billsGenerated,
+            BankSubmissionResponse bankSubmission,
+            Long regionId,
+            String specStatus,
             List<ItemResponse> items) {
 
         public static SettlementDetail from(Settlement s, List<SettlementItem> items) {
-            return from(s, items, Map.of());
+            return from(s, items, Map.of(), null);
         }
 
         public static SettlementDetail from(Settlement s, List<SettlementItem> items,
-                                            Map<Long, ProducerView> producers) {
+                                            Map<Long, ProducerView> producers,
+                                            SettlementBankSubmission submission) {
             int verified = (int) items.stream()
                     .filter(i -> i.getVerificationStatus() == SettlementItem.VerificationStatus.VERIFIED)
                     .count();
@@ -101,7 +113,10 @@ public final class SettlementDtos {
                     s.getTotalLitres(), s.getTotalMilkAmount(), s.getTotalIncentive(),
                     s.getTotalDeduction(), s.getTotalAdvanceRecovery(), s.getTotalAdjustment(),
                     s.getTotalRoundOff(), s.getTotalNetPayable(),
-                    items.stream().map(i -> ItemResponse.from(i, producers.get(i.getProducerId()))).toList());
+                    (int) items.stream().filter(i -> i.getBillNumber() != null).count(),
+                    submission == null ? null : BankSubmissionResponse.from(submission),
+                    s.getRegionId(), SpecStatus.batch(s.getStatus()),
+                    items.stream().map(i -> ItemResponse.from(i, producers.get(i.getProducerId()), s.getStatus())).toList());
         }
     }
 
@@ -131,13 +146,16 @@ public final class SettlementDtos {
             String paymentStatus,
             String verificationStatus,
             BigDecimal verifiedAmount,
-            Instant verifiedAt) {
+            Instant verifiedAt,
+            String billNumber,
+            String paymentReference,
+            String specStatus) {
 
         static ItemResponse from(SettlementItem i) {
-            return from(i, null);
+            return from(i, null, null);
         }
 
-        static ItemResponse from(SettlementItem i, ProducerView p) {
+        static ItemResponse from(SettlementItem i, ProducerView p, Settlement.Status batch) {
             return new ItemResponse(i.getId(), i.getProducerId(),
                     p == null ? null : p.producerNumber(), p == null ? null : p.name(),
                     i.getRegionId(),
@@ -147,7 +165,29 @@ public final class SettlementDtos {
                     i.getVeterinaryDeduction(), i.getOtherDeduction(), i.getAdvanceRecovery(),
                     i.getTotalDeduction(), i.getAdjustmentAmount(), i.getNetBeforeRounding(),
                     i.getRoundOff(), i.getNetPayable(), i.getPaymentStatus().name(),
-                    i.getVerificationStatus().name(), i.getVerifiedAmount(), i.getVerifiedAt());
+                    i.getVerificationStatus().name(), i.getVerifiedAmount(), i.getVerifiedAt(),
+                    i.getBillNumber(), i.getPaymentReference(),
+                    SpecStatus.line(i.getPaymentStatus(), batch));
+        }
+    }
+
+    public record BankSubmissionResponse(
+            LocalDate submittedOn, String bankReference, String note, int producerCount,
+            BigDecimal totalAmount, Long submittedBy, Instant createdAt) {
+
+        public static BankSubmissionResponse from(SettlementBankSubmission b) {
+            return new BankSubmissionResponse(b.getSubmittedOn(), b.getBankReference(), b.getNote(),
+                    b.getProducerCount(), b.getTotalAmount(), b.getSubmittedBy(), b.getCreatedAt());
+        }
+    }
+
+    public record StatusHistoryResponse(
+            Long id, String subjectType, Long subjectId, String fromStatus, String toStatus,
+            String note, Long changedBy, Instant changedAt) {
+
+        public static StatusHistoryResponse from(SettlementStatusHistory h) {
+            return new StatusHistoryResponse(h.getId(), h.getSubjectType().name(), h.getSubjectId(),
+                    h.getFromStatus(), h.getToStatus(), h.getNote(), h.getChangedBy(), h.getChangedAt());
         }
     }
 

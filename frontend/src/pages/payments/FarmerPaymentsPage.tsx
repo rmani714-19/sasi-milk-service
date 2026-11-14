@@ -17,7 +17,10 @@ import Typography from '@mui/material/Typography';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
+import { useRegions } from '../../api/common';
+import { regionLabel } from '../../lib/region';
 import { litres, money } from '../../lib/format';
+import { batchStatusLabel } from '../../lib/paymentLabels';
 import { PageHeader } from '../../components/PageHeader';
 import { StatusChip } from '../../components/StatusChip';
 import { EmptyState, QueryBoundary, TableSkeleton, useToast } from '../../components/ui';
@@ -71,6 +74,8 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
   const [weekAnchor, setWeekAnchor] = useState(iso(new Date()));
   const [monthAnchor, setMonthAnchor] = useState(iso(new Date()).slice(0, 7));
   const [statusFilter, setStatusFilter] = useState('');
+  const [regionId, setRegionId] = useState(''); // '' = every region
+  const regions = useRegions();
 
   const range = weekly ? weekRange(weekAnchor) : monthRange(monthAnchor);
 
@@ -86,6 +91,7 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
           periodStart: range.from,
           periodEnd: range.to,
           paymentFrequency: frequency,
+          regionId: regionId ? Number(regionId) : undefined,
         })
       ).data,
     onSuccess: (d) => {
@@ -101,8 +107,15 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
     [list.data, frequency],
   );
   const matching = useMemo(
-    () => mine.find((s) => s.periodStart === range.from && s.periodEnd === range.to && s.status !== 'CANCELLED'),
-    [mine, range.from, range.to],
+    () =>
+      mine.find(
+        (s) =>
+          s.periodStart === range.from &&
+          s.periodEnd === range.to &&
+          s.status !== 'CANCELLED' &&
+          String(s.regionId ?? '') === regionId,
+      ),
+    [mine, range.from, range.to, regionId],
   );
   const shown = useMemo(
     () =>
@@ -112,7 +125,7 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
     [mine, statusFilter],
   );
 
-  const thisPeriod = mine.find((s) => s.periodStart === range.from && s.periodEnd === range.to && s.status !== 'CANCELLED');
+  const thisPeriod = matching;
   const openRuns = mine.filter((s) => OPEN.includes(s.status));
   const pendingNet = openRuns.reduce((x, s) => x + Number(s.totalNetPayable), 0);
   const paidRuns = mine.filter((s) => s.status === 'PAID');
@@ -125,18 +138,18 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
         title={weekly ? 'Weekly Farmer Payment' : 'Monthly Farmer Payment'}
         subtitle={`${
           weekly ? 'Weekly' : 'Monthly'
-        } producers only — Calculate → Verify → Approve → Pay → Confirm`}
+        } producers only — Calculate → Verify → Generate bills → Approve → Submit to bank → Confirm payment`}
       />
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <SummaryCard
           label={weekly ? 'This week' : 'This month'}
           value={thisPeriod ? money(thisPeriod.totalNetPayable) : '—'}
-          hint={thisPeriod ? thisPeriod.status.replace(/_/g, ' ') : 'not started'}
+          hint={thisPeriod ? batchStatusLabel(thisPeriod.status) : 'not started'}
         />
         <SummaryCard label="Producers due" value={thisPeriod ? String(thisPeriod.totalProducers) : '—'} hint={`${range.from} → ${range.to}`} />
         <SummaryCard label="Pending" value={money(pendingNet)} hint={`${openRuns.length} open run${openRuns.length === 1 ? '' : 's'}`} />
-        <SummaryCard label="Paid" value={money(paidNet)} hint={`${paidRuns.length} run${paidRuns.length === 1 ? '' : 's'}`} />
+        <SummaryCard label="Completed" value={money(paidNet)} hint={`${paidRuns.length} run${paidRuns.length === 1 ? '' : 's'}`} />
         <SummaryCard label="Failed" value={String(failedCount)} hint={failedCount ? 'needs attention' : 'none'} tone={failedCount ? 'error' : undefined} />
       </Grid>
 
@@ -178,9 +191,26 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
               <MenuItem value="">All</MenuItem>
               {['DRAFT', 'CALCULATED', 'UNDER_VERIFICATION', 'VERIFIED', 'APPROVED', 'PAYOUT_INITIATED', 'PARTIALLY_PAID', 'PAID', 'FAILED', 'CANCELLED'].map((s) => (
                 <MenuItem key={s} value={s}>
-                  {s.replace(/_/g, ' ')}
+                  {batchStatusLabel(s)}
                 </MenuItem>
               ))}
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label="Region / area"
+              value={regionId}
+              onChange={(e) => setRegionId(e.target.value)}
+              sx={{ width: 200, flexShrink: 0 }}
+            >
+              <MenuItem value="">All regions</MenuItem>
+              {(regions.data ?? [])
+                .filter((r) => r.status === 'ACTIVE')
+                .map((r) => (
+                  <MenuItem key={r.id} value={String(r.id)}>
+                    {regionLabel(r)}
+                  </MenuItem>
+                ))}
             </TextField>
             <Box sx={{ flex: '1 1 0', minWidth: 0 }} />
             <Button
@@ -190,7 +220,7 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
               onClick={() => (matching ? nav(`/settlements/${matching.internalId}`) : create.mutate())}
               sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
             >
-              {matching ? 'Open this run' : `Start ${weekly ? 'weekly' : 'monthly'} run`}
+              {matching ? 'Open this run' : `Start ${weekly ? 'weekly' : 'monthly'} run${regionId ? ' for this region' : ''}`}
             </Button>
           </Stack>
         </CardContent>
@@ -199,7 +229,7 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
       <Card>
         <QueryBoundary
           query={list}
-          skeleton={<TableSkeleton cols={6} />}
+          skeleton={<TableSkeleton cols={7} />}
           empty={() => shown.length === 0}
           emptyState={<EmptyState title="No payment runs" description={`Start a ${weekly ? 'weekly' : 'monthly'} run above.`} />}
         >
@@ -209,6 +239,7 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
                 <TableRow>
                   <TableCell>Run</TableCell>
                   <TableCell>Period</TableCell>
+                  <TableCell>Region</TableCell>
                   <TableCell align="right">Producers</TableCell>
                   <TableCell align="right">Total litres</TableCell>
                   <TableCell align="right">Net payable</TableCell>
@@ -223,13 +254,16 @@ function FarmerPaymentPage({ frequency }: { frequency: Frequency }) {
                     <TableCell>
                       {s.periodStart} → {s.periodEnd}
                     </TableCell>
+                    <TableCell>
+                      {s.regionId == null ? 'All regions' : regionLabel(regions.data?.find((r) => r.id === s.regionId))}
+                    </TableCell>
                     <TableCell align="right">{s.totalProducers}</TableCell>
                     <TableCell align="right">{litres(s.totalLitres)}</TableCell>
                     <TableCell align="right" sx={{ fontWeight: 700 }}>
                       {money(s.totalNetPayable)}
                     </TableCell>
                     <TableCell>
-                      <StatusChip status={s.status} />
+                      <StatusChip status={s.status} label={batchStatusLabel(s.status)} />
                     </TableCell>
                     <TableCell align="right">
                       <Button size="small">Open</Button>

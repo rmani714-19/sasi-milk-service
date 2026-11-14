@@ -3,6 +3,7 @@ package com.sasimilkservice.center.service;
 import com.sasimilkservice.audit.spi.AuditRecorder;
 import com.sasimilkservice.center.domain.Center;
 import com.sasimilkservice.center.repository.CenterRepository;
+import com.sasimilkservice.center.spi.CenterProfileDirectory;
 import com.sasimilkservice.center.spi.CenterSettings;
 import com.sasimilkservice.common.error.NotFoundException;
 import com.sasimilkservice.incentive.spi.IncentiveCalculator;
@@ -13,7 +14,7 @@ import java.math.RoundingMode;
 
 @Service
 @Transactional(readOnly = true)
-public class CenterService {
+public class CenterService implements CenterProfileDirectory {
 
     private final CenterRepository repository;
     private final AuditRecorder audit;
@@ -26,6 +27,12 @@ public class CenterService {
     public Center get() {
         return repository.findTopByOrderByIdAsc()
                 .orElseThrow(() -> new NotFoundException("Center is not configured"));
+    }
+
+    @Override
+    public CenterProfile profile() {
+        Center c = get();
+        return new CenterProfile(c.getCenterName(), c.getAddress(), c.getMobileNumber());
     }
 
     public CenterSettings settings() {

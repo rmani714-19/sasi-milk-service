@@ -17,6 +17,9 @@ public interface CollectionSettlementGateway {
     /** Collections in the period still recorded with litres only (FAT / SNF not yet entered). */
     int pendingQualityCount(LocalDate periodStart, LocalDate periodEnd);
 
+    /** Same, limited to one region/area (a region-scoped payment batch). */
+    int pendingQualityCount(LocalDate periodStart, LocalDate periodEnd, long regionId);
+
     void attachToSettlementItem(Collection<Long> collectionIds, long settlementItemId);
 
     void detachFromSettlement(long settlementItemId);

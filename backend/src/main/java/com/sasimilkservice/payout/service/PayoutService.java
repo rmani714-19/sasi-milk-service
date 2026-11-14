@@ -7,14 +7,7 @@ import com.sasimilkservice.common.money.MoneyMath;
 import com.sasimilkservice.notification.spi.NotificationPublisher;
 import com.sasimilkservice.notification.spi.NotificationPublisher.NotificationRequest;
 import com.sasimilkservice.payout.domain.Payout;
-import com.sasimilkservice.payout.domain.PaymentWebhookEvent;
 import com.sasimilkservice.payout.domain.PayoutTransaction;
-import com.sasimilkservice.payout.provider.PayoutProvider;
-import com.sasimilkservice.payout.provider.PayoutProvider.CreateCommand;
-import com.sasimilkservice.payout.provider.PayoutProvider.CreateResult;
-import com.sasimilkservice.payout.provider.PayoutProvider.ProviderStatus;
-import com.sasimilkservice.payout.provider.PayoutProvider.WebhookResult;
-import com.sasimilkservice.payout.repository.PaymentWebhookEventRepository;
 import com.sasimilkservice.payout.repository.PayoutRepository;
 import com.sasimilkservice.payout.repository.PayoutTransactionRepository;
 import com.sasimilkservice.producer.spi.BankAccountResolver;
@@ -34,10 +27,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Producer payout: create one disbursement per approved settlement item, track it
- * through the provider, process webhooks, and drive settlement payment status.
- * Idempotent on {@code po-<settlementItemId>}; a create failure never leaves a
- * duplicate (unique {@code settlement_item_id}).
+ * Producer payment tracking. The application <b>never moves money</b>: it keeps one payment line per
+ * approved settlement item, and the owner pays through the bank and then records the outcome here
+ * (confirm with bank reference, or mark failed). Idempotent on {@code po-<settlementItemId>} — unique
+ * {@code settlement_item_id} guarantees no duplicate line.
  */
 @Service
 @Transactional(readOnly = true)
@@ -45,8 +38,6 @@ public class PayoutService {
 
     private final PayoutRepository payouts;
     private final PayoutTransactionRepository payoutTxns;
-    private final PaymentWebhookEventRepository webhookEvents;
-    private final PayoutProvider provider;
     private final SettlementPayoutGateway settlements;
     private final BankAccountResolver bankAccounts;
     private final NotificationPublisher notifications;
@@ -54,29 +45,16 @@ public class PayoutService {
 
     public PayoutService(PayoutRepository payouts,
                          PayoutTransactionRepository payoutTxns,
-                         PaymentWebhookEventRepository webhookEvents,
-                         PayoutProvider provider,
                          SettlementPayoutGateway settlements,
                          BankAccountResolver bankAccounts,
                          NotificationPublisher notifications,
                          AuditRecorder audit) {
         this.payouts = payouts;
         this.payoutTxns = payoutTxns;
-        this.webhookEvents = webhookEvents;
-        this.provider = provider;
         this.settlements = settlements;
         this.bankAccounts = bankAccounts;
         this.notifications = notifications;
         this.audit = audit;
-    }
-
-    /** Provider account balance when the active provider exposes it (RazorpayX manual otherwise). */
-    public Optional<PayoutProvider.ProviderBalance> providerBalance() {
-        return provider.getBalance();
-    }
-
-    public String providerName() {
-        return provider.name();
     }
 
     public List<Payout> all() {
@@ -98,7 +76,18 @@ public class PayoutService {
 
     @Transactional
     public List<Payout> initiate(long settlementId) {
+        return initiate(settlementId, null, null, null);
+    }
+
+    /**
+     * Hand an approved batch to the bank: records the submission (date, reference, note) and creates the
+     * per-producer payment lines. Nothing is sent anywhere — each line waits for the owner to confirm it
+     * after the bank has paid.
+     */
+    @Transactional
+    public List<Payout> initiate(long settlementId, java.time.LocalDate submittedOn, String bankReference, String note) {
         ApprovedSettlement settlement = settlements.requireApprovedForPayout(settlementId);
+        settlements.recordBankSubmission(settlementId, submittedOn, bankReference, note);
         List<Payout> result = new java.util.ArrayList<>();
 
         for (PayableItem item : settlement.items()) {
@@ -117,6 +106,9 @@ public class PayoutService {
         settlements.markPayoutInitiated(settlementId);
         return result;
     }
+
+    /** Recorded on every payment line — the owner pays outside the app. */
+    private static final String MANUAL = "MANUAL";
 
     private Payout createPayout(long settlementId, String settlementNumber, PayableItem item) {
         // resolve the bank account fresh (the settlement snapshot may predate it)
@@ -140,32 +132,21 @@ public class PayoutService {
         p.setProducerId(item.producerId());
         p.setAmount(MoneyMath.money(item.netPayable()));
         p.setIdempotencyKey("po-" + item.settlementItemId());
-        p.setProvider(provider.name());
+        p.setProvider(MANUAL);
 
         PayoutBankAccount b = bank.get();
         p.setBankAccountId(b.bankAccountId());
-        p.setStatus(Payout.Status.PENDING);
-        p = payouts.save(p);
-        logTxn(p.getId(), PayoutTransaction.EventType.REQUEST, "PENDING", null, requestPayload(p, b));
-
-        CreateResult r = provider.create(new CreateCommand(
-                p.getIdempotencyKey(), p.getAmount(), p.getCurrencyCode(),
-                b.accountHolderName(), b.accountNumber(), b.ifsc(), b.bankName(),
-                settlementNumber + " / producer " + item.producerId()));
-
-        p.setProviderPayoutId(r.providerPayoutId());
-        p.setProviderRef(r.providerRef());
-        p.setStatus(mapStatus(r.status()));
+        p.setStatus(Payout.Status.PROCESSING); // listed for the bank; waiting for the owner's confirmation
         p.setAttemptCount(1);
         p.setLastAttemptAt(Instant.now());
-        logTxn(p.getId(), PayoutTransaction.EventType.RESPONSE, r.status().name(), r.providerRef(),
-                Map.of("providerPayoutId", String.valueOf(r.providerPayoutId()),
-                        "raw", String.valueOf(r.rawResponse())));
+        p = payouts.save(p);
+        logTxn(p.getId(), PayoutTransaction.EventType.REQUEST, "PROCESSING", null, requestPayload(p, b));
 
         settlements.updateItemPaymentStatus(item.settlementItemId(),
                 toItemStatus(p.getStatus()), null);
         audit.record("PAYOUT_CREATED", "Payout", p.getId(),
-                "Payout %s to producer %d, status %s".formatted(p.getAmount(), item.producerId(), p.getStatus()));
+                "Payment line %s for producer %d listed for the bank, status %s".formatted(
+                        p.getAmount(), item.producerId(), p.getStatus()));
         return p;
     }
 
@@ -181,79 +162,37 @@ public class PayoutService {
         }
         PayoutBankAccount b = bank.get();
 
+        // Put the line back on the bank list; the owner pays again outside the app and confirms.
         p.setAttemptCount(p.getAttemptCount() + 1);
         p.setLastAttemptAt(Instant.now());
         p.setFailureCode(null);
         p.setFailureReason(null);
-        logTxn(p.getId(), PayoutTransaction.EventType.RETRY, null, null, requestPayload(p, b));
-
-        CreateResult r = provider.create(new CreateCommand(
-                p.getIdempotencyKey(), p.getAmount(), p.getCurrencyCode(),
-                b.accountHolderName(), b.accountNumber(), b.ifsc(), b.bankName(),
-                "retry / payout " + p.getId()));
-        p.setProviderPayoutId(r.providerPayoutId());
-        p.setProviderRef(r.providerRef());
-        p.setStatus(mapStatus(r.status()));
-        logTxn(p.getId(), PayoutTransaction.EventType.RESPONSE, r.status().name(), r.providerRef(), null);
+        p.setStatus(Payout.Status.PROCESSING);
+        logTxn(p.getId(), PayoutTransaction.EventType.RETRY, "PROCESSING", null, requestPayload(p, b));
 
         settlements.updateItemPaymentStatus(p.getSettlementItemId(), toItemStatus(p.getStatus()), null);
         settlements.refreshSettlementPaymentStatus(p.getSettlementId());
-        audit.record("PAYOUT_RETRIED", "Payout", p.getId(), "Payout retried, status " + p.getStatus());
+        audit.record("PAYOUT_RETRIED", "Payout", p.getId(), "Payment line put back on the bank list, status " + p.getStatus());
         return p;
     }
 
     @Transactional
-    public void handleWebhook(String rawBody, Map<String, String> headers) {
-        WebhookResult w = provider.parseWebhook(rawBody, headers);
-        if (!w.signatureValid()) {
-            // a bad signature is never persisted or acted on
-            throw new BusinessRuleException("invalid_signature", "Webhook signature verification failed");
-        }
-
-        // Deduplicate on the provider's own event id BEFORE touching any payout.
-        if (w.eventId() != null && !w.eventId().isBlank()) {
-            var existing = webhookEvents.findByProviderAndEventId(provider.name(), w.eventId());
-            if (existing.isPresent()) {
-                return; // redelivered event — already recorded, do not re-apply or re-notify
-            }
-            PaymentWebhookEvent ev = new PaymentWebhookEvent();
-            ev.setProvider(provider.name());
-            ev.setEventId(w.eventId());
-            ev.setEventType(w.eventType());
-            try {
-                applyWebhook(w);
-                ev.setProcessingStatus(PaymentWebhookEvent.ProcessingStatus.PROCESSED.name());
-                ev.setProcessedAt(Instant.now());
-            } catch (RuntimeException e) {
-                ev.setProcessingStatus(PaymentWebhookEvent.ProcessingStatus.FAILED.name());
-                ev.setErrorMessage(e.getMessage());
-                webhookEvents.save(ev);
-                throw e;
-            }
-            webhookEvents.save(ev);
-            return;
-        }
-        applyWebhook(w);
-    }
-
-    private void applyWebhook(WebhookResult w) {
-        Payout p = payouts.findByProviderPayoutId(w.providerPayoutId())
-                .orElseThrow(() -> new NotFoundException("Unknown payout " + w.providerPayoutId()));
-
-        // second-line dedupe: one WEBHOOK transaction per (payout, providerRef)
-        if (w.providerRef() != null && payoutTxns.existsByPayoutIdAndEventTypeAndProviderRef(
-                p.getId(), PayoutTransaction.EventType.WEBHOOK, w.providerRef())) {
-            return;
-        }
-        logTxn(p.getId(), PayoutTransaction.EventType.WEBHOOK, w.status().name(), w.providerRef(), null);
-        applyFinalStatus(p, w.status(), w.utr(), w.failureCode(), w.failureReason());
-    }
-
-    @Transactional
     public Payout markPaid(long payoutId, String utr) {
+        return markPaid(payoutId, utr, null);
+    }
+
+    /** Manual confirmation after the bank has paid; {@code paidOn} is the date the bank paid (defaults to now). */
+    @Transactional
+    public Payout markPaid(long payoutId, String utr, java.time.LocalDate paidOn) {
         Payout p = requireInFlight(payoutId);
+        if (paidOn != null && paidOn.isAfter(java.time.LocalDate.now())) {
+            throw new BusinessRuleException("The payment date cannot be in the future");
+        }
         logTxn(p.getId(), PayoutTransaction.EventType.MANUAL_UPDATE, "SUCCESS", utr, null);
-        applyFinalStatus(p, ProviderStatus.SUCCESS, utr, null, null);
+        applyFinalStatus(p, Payout.Status.SUCCESS, utr, null, null);
+        if (paidOn != null) {
+            p.setSettledAt(paidOn.atTime(12, 0).atZone(java.time.ZoneId.of("Asia/Kolkata")).toInstant());
+        }
         return p;
     }
 
@@ -261,11 +200,11 @@ public class PayoutService {
     public Payout markFailed(long payoutId, String reason) {
         Payout p = requireInFlight(payoutId);
         logTxn(p.getId(), PayoutTransaction.EventType.MANUAL_UPDATE, "FAILED", null, null);
-        applyFinalStatus(p, ProviderStatus.FAILED, null, "manual", reason);
+        applyFinalStatus(p, Payout.Status.FAILED, null, "manual", reason);
         return p;
     }
 
-    private void applyFinalStatus(Payout p, ProviderStatus status, String utr,
+    private void applyFinalStatus(Payout p, Payout.Status status, String utr,
                                   String failureCode, String failureReason) {
         switch (status) {
             case SUCCESS -> {
@@ -282,21 +221,10 @@ public class PayoutService {
                 settlements.updateItemPaymentStatus(p.getSettlementItemId(), ItemPaymentStatus.FAILED, null);
                 notifyPayment(p, "PAYMENT_FAILED", false);
             }
-            case REVERSED -> {
-                // money that had settled has been pulled back — the line is no longer paid
-                p.setStatus(Payout.Status.REVERSED);
-                p.setFailureCode(failureCode == null ? "REVERSED" : failureCode);
-                p.setFailureReason(failureReason == null ? "Payout reversed by provider" : failureReason);
-                settlements.updateItemPaymentStatus(p.getSettlementItemId(), ItemPaymentStatus.CANCELLED, null);
-                notifyPayment(p, "PAYMENT_REVERSED", false);
-            }
-            default -> {
-                p.setStatus(mapStatus(status));
-                settlements.updateItemPaymentStatus(p.getSettlementItemId(), toItemStatus(p.getStatus()), null);
-            }
+            default -> throw new IllegalArgumentException("Unsupported manual status " + status);
         }
         settlements.refreshSettlementPaymentStatus(p.getSettlementId());
-        audit.record("PAYOUT_STATUS_CHANGED", "Payout", p.getId(), "Payout status -> " + p.getStatus());
+        audit.record("PAYOUT_STATUS_CHANGED", "Payout", p.getId(), "Payment status -> " + p.getStatus());
     }
 
     private void notifyPayment(Payout p, String templateCode, boolean success) {
@@ -339,16 +267,6 @@ public class PayoutService {
         m.put("accountLast4", b.accountNumber() == null ? null
                 : b.accountNumber().substring(Math.max(0, b.accountNumber().length() - 4)));
         return m;
-    }
-
-    private static Payout.Status mapStatus(ProviderStatus s) {
-        return switch (s) {
-            case PENDING -> Payout.Status.INITIATED;
-            case PROCESSING -> Payout.Status.PROCESSING;
-            case SUCCESS -> Payout.Status.SUCCESS;
-            case FAILED -> Payout.Status.FAILED;
-            case REVERSED -> Payout.Status.REVERSED;
-        };
     }
 
     private static ItemPaymentStatus toItemStatus(Payout.Status s) {

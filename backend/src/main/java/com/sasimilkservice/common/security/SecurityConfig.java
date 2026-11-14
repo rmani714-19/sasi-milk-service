@@ -21,8 +21,6 @@ public class SecurityConfig {
     private static final String[] PUBLIC = {
             "/api/v1/auth/login",
             "/api/v1/auth/refresh",
-            "/api/v1/payouts/webhook",
-            "/api/v1/payments/webhooks/razorpayx",
             "/api/v1/vehicles/providers/*/webhook",
             "/actuator/health/**",
             "/v3/api-docs/**",

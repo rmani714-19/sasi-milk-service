@@ -13,11 +13,17 @@ import com.sasimilkservice.settlement.api.dto.SettlementDtos.CreateSettlementReq
 import com.sasimilkservice.settlement.api.dto.SettlementDtos.DailyCollectionRow;
 import com.sasimilkservice.settlement.api.dto.SettlementDtos.SettlementDetail;
 import com.sasimilkservice.settlement.api.dto.SettlementDtos.SettlementSummary;
+import com.sasimilkservice.settlement.api.dto.SettlementDtos.StatusHistoryResponse;
+import com.sasimilkservice.settlement.bill.SettlementBillService;
 import com.sasimilkservice.settlement.domain.Settlement;
 import com.sasimilkservice.settlement.domain.SettlementItem;
 import com.sasimilkservice.settlement.service.SettlementService;
 import jakarta.validation.Valid;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -40,12 +46,14 @@ public class SettlementController {
     private final SettlementService service;
     private final ProducerDirectory producers;
     private final PaymentOpsService paymentOps;
+    private final SettlementBillService bills;
 
     public SettlementController(SettlementService service, ProducerDirectory producers,
-                               PaymentOpsService paymentOps) {
+                               PaymentOpsService paymentOps, SettlementBillService bills) {
         this.service = service;
         this.producers = producers;
         this.paymentOps = paymentOps;
+        this.bills = bills;
     }
 
     @GetMapping
@@ -68,8 +76,49 @@ public class SettlementController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAuthority('GENERATE_SETTLEMENT')")
     public SettlementDetail create(@Valid @RequestBody CreateSettlementRequest r) {
-        Settlement s = service.create(r.periodStart(), r.periodEnd(), r.frequency());
+        Settlement s = service.create(r.periodStart(), r.periodEnd(), r.frequency(), r.regionId());
         return SettlementDetail.from(s, List.of());
+    }
+
+    @GetMapping("/{id}/history")
+    @PreAuthorize("hasAnyAuthority('GENERATE_SETTLEMENT','REVIEW_SETTLEMENT','VERIFY_PAYMENT','APPROVE_SETTLEMENT','VIEW_PAYMENTS')")
+    public List<StatusHistoryResponse> history(@PathVariable long id) {
+        return service.historyOf(id).stream().map(StatusHistoryResponse::from).toList();
+    }
+
+    @PostMapping("/{id}/bills/generate")
+    @PreAuthorize("hasAnyAuthority('GENERATE_BILLS','GENERATE_SETTLEMENT','APPROVE_SETTLEMENT','VERIFY_PAYMENT')")
+    public Map<String, Integer> generateBills(@PathVariable long id) {
+        int generated = service.generateBills(id);
+        return Map.of("generated", generated, "total", service.itemsOf(id).size());
+    }
+
+    private static final String VIEW_ANY =
+            "hasAnyAuthority('GENERATE_SETTLEMENT','REVIEW_SETTLEMENT','VERIFY_PAYMENT','APPROVE_SETTLEMENT','VIEW_PAYMENTS')";
+
+    /** One producer's bill. {@code ?download=true} forces a download; otherwise it opens inline as a preview. */
+    @GetMapping("/{id}/items/{itemId}/bill")
+    @PreAuthorize(VIEW_ANY)
+    public ResponseEntity<byte[]> bill(@PathVariable long id, @PathVariable long itemId,
+                                       @RequestParam(defaultValue = "false") boolean download) {
+        return pdf(bills.billPdf(id, itemId), bills.billFileName(id, itemId) + ".pdf", download);
+    }
+
+    /** All producers' bills in one PDF. */
+    @GetMapping("/{id}/bills")
+    @PreAuthorize(VIEW_ANY)
+    public ResponseEntity<byte[]> allBills(@PathVariable long id,
+                                           @RequestParam(defaultValue = "true") boolean download) {
+        return pdf(bills.allBillsPdf(id), service.require(id).getSettlementNumber() + "-bills.pdf", download);
+    }
+
+    private static ResponseEntity<byte[]> pdf(byte[] body, String fileName, boolean download) {
+        ContentDisposition cd = (download ? ContentDisposition.attachment() : ContentDisposition.inline())
+                .filename(fileName).build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, cd.toString())
+                .contentType(MediaType.APPLICATION_PDF)
+                .body(body);
     }
 
     @PostMapping("/{id}/calculate")
@@ -172,7 +221,7 @@ public class SettlementController {
                 .filter(java.util.Optional::isPresent)
                 .map(java.util.Optional::get)
                 .collect(Collectors.toMap(ProducerView::id, Function.identity(), (a, b) -> a));
-        return SettlementDetail.from(s, items, lookup);
+        return SettlementDetail.from(s, items, lookup, service.bankSubmissionOf(s.getId()).orElse(null));
     }
 
     public record AdjustmentResponse(Long id, Long producerId, String type,

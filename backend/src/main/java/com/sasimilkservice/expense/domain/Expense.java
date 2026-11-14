@@ -48,6 +48,10 @@ public class Expense extends AuditableEntity {
 
     private String description;
 
+    /** The vehicle this was spent on (fuel, repairs…), when it belongs to one. */
+    @Column(name = "vehicle_id")
+    private Long vehicleId;
+
     @Column(nullable = false)
     private BigDecimal amount;
 

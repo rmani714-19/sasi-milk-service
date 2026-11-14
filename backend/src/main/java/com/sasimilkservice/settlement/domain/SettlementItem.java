@@ -98,6 +98,16 @@ public class SettlementItem extends BaseEntity {
     @Column(name = "verified_at")
     private Instant verifiedAt;
 
+    /** Set when this producer's bill is generated from the verified collections. */
+    @Column(name = "bill_number")
+    private String billNumber;
+
+    @Column(name = "bill_generated_at")
+    private Instant billGeneratedAt;
+
+    @Column(name = "bill_generated_by")
+    private Long billGeneratedBy;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "calculation_snapshot", nullable = false, columnDefinition = "jsonb")
     private Map<String, Object> calculationSnapshot = new HashMap<>();

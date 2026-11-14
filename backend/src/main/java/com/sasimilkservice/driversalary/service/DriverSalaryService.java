@@ -7,13 +7,19 @@ import com.sasimilkservice.common.money.MoneyMath;
 import com.sasimilkservice.common.security.CurrentUser;
 import com.sasimilkservice.driver.domain.Driver;
 import com.sasimilkservice.driver.repository.DriverRepository;
+import com.sasimilkservice.collection.spi.RouteCollectionQuery;
+import com.sasimilkservice.driversalary.domain.DriverAdvance;
+import com.sasimilkservice.driversalary.domain.DriverSalaryBankSubmission;
 import com.sasimilkservice.driversalary.domain.DriverSalaryBatch;
 import com.sasimilkservice.driversalary.domain.DriverSalaryBatch.Status;
 import com.sasimilkservice.driversalary.domain.DriverSalaryItem;
 import com.sasimilkservice.driversalary.domain.DriverSalaryItem.PaymentMethod;
 import com.sasimilkservice.driversalary.domain.DriverSalaryItem.PaymentStatus;
+import com.sasimilkservice.driversalary.repository.DriverAdvanceRepository;
+import com.sasimilkservice.driversalary.repository.DriverSalaryBankSubmissionRepository;
 import com.sasimilkservice.driversalary.repository.DriverSalaryBatchRepository;
 import com.sasimilkservice.driversalary.repository.DriverSalaryItemRepository;
+import com.sasimilkservice.expense.spi.VehicleExpenseQuery;
 import com.sasimilkservice.paymentops.domain.BankBalanceCheck;
 import com.sasimilkservice.paymentops.service.PaymentOpsService;
 import com.sasimilkservice.paymentops.service.PreValidation;
@@ -42,14 +48,25 @@ public class DriverSalaryService {
     private final DriverRepository drivers;
     private final PaymentOpsService paymentOps;
     private final AuditRecorder audit;
+    private final DriverAdvanceRepository advances;
+    private final RouteCollectionQuery routeCollections;
+    private final VehicleExpenseQuery vehicleExpenses;
+    private final DriverSalaryBankSubmissionRepository submissions;
 
     public DriverSalaryService(DriverSalaryBatchRepository batches, DriverSalaryItemRepository items,
-                               DriverRepository drivers, PaymentOpsService paymentOps, AuditRecorder audit) {
+                               DriverRepository drivers, PaymentOpsService paymentOps, AuditRecorder audit,
+                               DriverAdvanceRepository advances, RouteCollectionQuery routeCollections,
+                               VehicleExpenseQuery vehicleExpenses,
+                               DriverSalaryBankSubmissionRepository submissions) {
         this.batches = batches;
         this.items = items;
         this.drivers = drivers;
         this.paymentOps = paymentOps;
         this.audit = audit;
+        this.advances = advances;
+        this.routeCollections = routeCollections;
+        this.vehicleExpenses = vehicleExpenses;
+        this.submissions = submissions;
     }
 
     public List<DriverSalaryBatch> list() {
@@ -137,9 +154,11 @@ public class DriverSalaryService {
                 it.setWorkingDays(new BigDecimal(daysInMonth));
                 it.setBasicSalary(d.getSalaryType() == Driver.SalaryType.PER_DAY
                         ? nz(d.getPerDayRate()) : nz(d.getMonthlySalary()));
+                refreshFromRecords(it, d, b.getPeriodMonth());
                 recomputeItem(it);
                 items.save(it);
             } else if (it.getPaymentStatus() == PaymentStatus.PENDING) {
+                refreshFromRecords(it, d, b.getPeriodMonth());
                 recomputeItem(it); // keep operator-edited components, refresh derived totals
             }
         }
@@ -262,6 +281,7 @@ public class DriverSalaryService {
         b.setStatus(Status.APPROVED);
         b.setApprovedAt(Instant.now());
         CurrentUser.id().ifPresent(b::setApprovedBy);
+        markAdvancesDeducted(b);
         audit.record("SALARY_BATCH_APPROVED", "DriverSalaryBatch", batchId,
                 b.getBatchNumber() + " approved (owner-confirmed), net payable " + b.getTotalNet());
         return b;
@@ -280,6 +300,12 @@ public class DriverSalaryService {
         b.setStatus(Status.CANCELLED);
         b.setCancelledAt(Instant.now());
         CurrentUser.id().ifPresent(b::setCancelledBy);
+        for (DriverSalaryItem it : items(batchId)) { // advances taken into this run go back to the ledger
+            for (DriverAdvance a : advances.findByDeductedInItemId(it.getId())) {
+                a.setStatus(DriverAdvance.Status.OPEN);
+                a.setDeductedInItemId(null);
+            }
+        }
         audit.record("SALARY_BATCH_CANCELLED", "DriverSalaryBatch", batchId, b.getBatchNumber() + " cancelled");
         return b;
     }
@@ -360,6 +386,122 @@ public class DriverSalaryService {
         return it;
     }
 
+    // ---------------------------------------------------------------- bank submission
+
+    public java.util.Optional<DriverSalaryBankSubmission> bankSubmissionOf(long batchId) {
+        return submissions.findByBatchId(batchId);
+    }
+
+    /**
+     * Record that the approved salary batch was handed to the bank (portal upload, cheque or letter). Nothing
+     * is sent from here; each driver is then confirmed paid with the bank reference once the bank has paid.
+     */
+    @Transactional
+    public DriverSalaryBankSubmission recordBankSubmission(long batchId, LocalDate submittedOn, String reference, String note) {
+        DriverSalaryBatch b = require(batchId);
+        if (b.getStatus() != Status.APPROVED) {
+            throw new BusinessRuleException("Only an approved salary batch can be submitted to the bank");
+        }
+        if (submissions.findByBatchId(batchId).isPresent()) {
+            throw new BusinessRuleException("This salary batch has already been submitted to the bank");
+        }
+        if (submittedOn != null && submittedOn.isAfter(LocalDate.now())) {
+            throw new BusinessRuleException("The submission date cannot be in the future");
+        }
+        List<DriverSalaryItem> payable = items(batchId).stream().filter(i -> i.getNetSalary().signum() > 0).toList();
+        DriverSalaryBankSubmission sub = new DriverSalaryBankSubmission();
+        sub.setBatchId(batchId);
+        sub.setSubmittedOn(submittedOn == null ? LocalDate.now() : submittedOn);
+        sub.setBankReference(reference == null || reference.isBlank() ? null : reference.trim());
+        sub.setNote(note == null || note.isBlank() ? null : note.trim());
+        sub.setDriverCount(payable.size());
+        sub.setTotalAmount(MoneyMath.money(payable.stream().map(DriverSalaryItem::getNetSalary)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)));
+        CurrentUser.id().ifPresent(sub::setSubmittedBy);
+        sub = submissions.save(sub);
+        b.setStatus(Status.PAYMENT_INITIATED);
+        audit.record("SALARY_BANK_SUBMITTED", "DriverSalaryBatch", batchId,
+                "%s submitted to bank on %s (%d drivers, %s)".formatted(b.getBatchNumber(), sub.getSubmittedOn(),
+                        sub.getDriverCount(), sub.getTotalAmount()));
+        return sub;
+    }
+
+    // ---------------------------------------------------------------- advance ledger
+
+    public List<DriverAdvance> advancesOf(long driverId) {
+        return advances.findByDriverIdOrderByAdvanceDateDescIdDesc(driverId);
+    }
+
+    @Transactional
+    public DriverAdvance addAdvance(long driverId, LocalDate date, BigDecimal amount, String reason) {
+        drivers.findById(driverId).orElseThrow(() -> NotFoundException.of("Driver", driverId));
+        if (amount == null || amount.signum() <= 0) {
+            throw new BusinessRuleException("The advance amount must be greater than zero");
+        }
+        if (date != null && date.isAfter(LocalDate.now())) {
+            throw new BusinessRuleException("The advance date cannot be in the future");
+        }
+        DriverAdvance a = new DriverAdvance();
+        a.setDriverId(driverId);
+        a.setAdvanceDate(date == null ? LocalDate.now() : date);
+        a.setAmount(MoneyMath.money(amount));
+        a.setReason(reason == null || reason.isBlank() ? null : reason.trim());
+        CurrentUser.id().ifPresent(a::setCreatedBy);
+        a = advances.save(a);
+        audit.record("DRIVER_ADVANCE_GIVEN", "DriverAdvance", a.getId(),
+                "Advance %s to driver %d".formatted(a.getAmount(), driverId));
+        return a;
+    }
+
+    @Transactional
+    public DriverAdvance cancelAdvance(long advanceId) {
+        DriverAdvance a = advances.findById(advanceId)
+                .orElseThrow(() -> NotFoundException.of("DriverAdvance", advanceId));
+        if (a.getStatus() != DriverAdvance.Status.OPEN) {
+            throw new BusinessRuleException("Only an advance that has not been deducted yet can be cancelled");
+        }
+        a.setStatus(DriverAdvance.Status.CANCELLED);
+        audit.record("DRIVER_ADVANCE_CANCELLED", "DriverAdvance", advanceId, "Advance " + a.getAmount() + " cancelled");
+        return a;
+    }
+
+    /**
+     * Pull the month's figures from the records: litres collected on the driver's route, what was spent on
+     * their vehicle (both for information on the statement), and the open advances to deduct.
+     */
+    private void refreshFromRecords(DriverSalaryItem it, Driver d, LocalDate month) {
+        LocalDate to = month.withDayOfMonth(month.lengthOfMonth());
+        it.setRouteLitres(MoneyMath.money(routeCollections.litresByDay(d.getRouteRegionIds(), month, to).stream()
+                .map(RouteCollectionQuery.RouteDay::litres).reduce(BigDecimal.ZERO, BigDecimal::add)));
+        it.setVehicleExpenses(it.getVehicleId() == null ? MoneyMath.money(BigDecimal.ZERO)
+                : MoneyMath.money(vehicleExpenses.forVehicle(it.getVehicleId(), month, to).stream()
+                .map(VehicleExpenseQuery.VehicleExpense::amount).reduce(BigDecimal.ZERO, BigDecimal::add)));
+        it.setSalaryAdvance(MoneyMath.money(advances
+                .findByDriverIdAndStatusAndAdvanceDateLessThanEqualOrderByAdvanceDateAscIdAsc(
+                        d.getId(), DriverAdvance.Status.OPEN, to).stream()
+                .map(DriverAdvance::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add)));
+    }
+
+    /** On approval the advances covered by each line's deduction are marked as deducted (whole entries, oldest first). */
+    private void markAdvancesDeducted(DriverSalaryBatch b) {
+        LocalDate to = b.getPeriodMonth().withDayOfMonth(b.getPeriodMonth().lengthOfMonth());
+        for (DriverSalaryItem it : items(b.getId())) {
+            BigDecimal budget = nz(it.getSalaryAdvance());
+            if (budget.signum() <= 0) {
+                continue;
+            }
+            for (DriverAdvance a : advances.findByDriverIdAndStatusAndAdvanceDateLessThanEqualOrderByAdvanceDateAscIdAsc(
+                    it.getDriverId(), DriverAdvance.Status.OPEN, to)) {
+                if (a.getAmount().compareTo(budget) > 0) {
+                    break;
+                }
+                a.setStatus(DriverAdvance.Status.DEDUCTED);
+                a.setDeductedInItemId(it.getId());
+                budget = budget.subtract(a.getAmount());
+            }
+        }
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private DriverSalaryItem requireItem(long id) {
@@ -398,7 +540,7 @@ public class DriverSalaryService {
         long paid = list.stream().filter(i -> i.getPaymentStatus() == PaymentStatus.PAID).count();
         long failed = list.stream().filter(i -> i.getPaymentStatus() == PaymentStatus.FAILED).count();
         if (paid == 0 && failed == 0) {
-            b.setStatus(Status.APPROVED);
+            b.setStatus(submissions.findByBatchId(b.getId()).isPresent() ? Status.PAYMENT_INITIATED : Status.APPROVED);
         } else if (paid == list.size()) {
             b.setStatus(Status.PAID);
         } else if (paid > 0) {

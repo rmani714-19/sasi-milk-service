@@ -14,6 +14,12 @@ public interface BankAccountResolver {
      */
     Optional<PayoutBankAccount> payoutDetails(Long bankAccountId);
 
+    /** Display-safe bank details (account number masked to its last four digits) — for bills and statements. */
+    Optional<MaskedBankAccount> maskedDetails(Long bankAccountId);
+
+    record MaskedBankAccount(String accountHolderName, String accountNumberMasked, String ifsc, String bankName) {
+    }
+
     record PayoutBankAccount(
             Long bankAccountId,
             String accountHolderName,

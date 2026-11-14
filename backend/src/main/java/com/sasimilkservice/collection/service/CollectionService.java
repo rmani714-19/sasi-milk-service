@@ -44,7 +44,8 @@ import java.util.UUID;
  */
 @Service
 @Transactional(readOnly = true)
-public class CollectionService implements CollectionSettlementGateway {
+public class CollectionService implements CollectionSettlementGateway,
+        com.sasimilkservice.collection.spi.RouteCollectionQuery {
 
     private final MilkCollectionRepository collections;
     private final CollectionSyncLogRepository syncLog;
@@ -366,6 +367,12 @@ public class CollectionService implements CollectionSettlementGateway {
     }
 
     @Override
+    public int pendingQualityCount(LocalDate periodStart, LocalDate periodEnd, long regionId) {
+        return (int) collections.countByStatusAndCollectionDateBetweenAndRegionId(
+                MilkCollection.Status.PENDING_QUALITY, periodStart, periodEnd, regionId);
+    }
+
+    @Override
     public List<SettlementCollectionRow> unsettledConfirmed(LocalDate periodStart, LocalDate periodEnd) {
         return collections.findByStatusAndSettlementItemIdIsNullAndCollectionDateBetween(
                         MilkCollection.Status.CONFIRMED, periodStart, periodEnd).stream()
@@ -457,5 +464,16 @@ public class CollectionService implements CollectionSettlementGateway {
     }
 
     public record RecordResult(MilkCollection collection, boolean duplicate) {
+    }
+
+    @Override
+    public List<RouteDay> litresByDay(java.util.Collection<Long> regionIds, LocalDate from, LocalDate to) {
+        if (regionIds == null || regionIds.isEmpty()) {
+            return List.of();
+        }
+        return collections.routeLitres(regionIds, from, to).stream()
+                .map(r -> new RouteDay((LocalDate) r[0], (Long) r[1], (String) r[2], (BigDecimal) r[3],
+                        ((Number) r[4]).intValue()))
+                .toList();
     }
 }

@@ -48,13 +48,16 @@ public class DriverSalaryController {
     private final DriverRepository drivers;
     private final ReportExporter exporter;
     private final PaymentOpsService paymentOps;
+    private final com.sasimilkservice.driversalary.statement.SalaryStatementService statements;
 
     public DriverSalaryController(DriverSalaryService service, DriverRepository drivers,
-                                  ReportExporter exporter, PaymentOpsService paymentOps) {
+                                  ReportExporter exporter, PaymentOpsService paymentOps,
+                                  com.sasimilkservice.driversalary.statement.SalaryStatementService statements) {
         this.service = service;
         this.drivers = drivers;
         this.exporter = exporter;
         this.paymentOps = paymentOps;
+        this.statements = statements;
     }
 
     @GetMapping("/{id}/report")
@@ -72,14 +75,16 @@ public class DriverSalaryController {
                 "Driver Salary — " + b.getBatchNumber(),
                 b.getPeriodMonth().toString().substring(0, 7),
                 List.of("Driver", "Basic", "Working Days", "Allowances", "Overtime", "Gross",
-                        "Advance", "Loan", "Penalty", "Other Ded.", "Net Salary", "Status", "Method", "Reference"),
+                        "Advance", "Loan", "Penalty", "Other Ded.", "Net Salary", "Route Litres", "Vehicle Expenses",
+                        "Status", "Method", "Reference"),
                 items.stream().<List<Object>>map(i -> {
                     Driver d = byId.get(i.getDriverId());
                     return java.util.Arrays.<Object>asList(
                             d == null ? ("#" + i.getDriverId()) : (d.getName() + " (" + d.getCode() + ")"),
                             i.getBasicSalary(), i.getWorkingDays(), i.getAllowances(), i.getOvertime(),
                             i.getGrossAmount(), i.getSalaryAdvance(), i.getLoanRecovery(), i.getPenalty(),
-                            i.getOtherDeduction(), i.getNetSalary(), i.getPaymentStatus().name(),
+                            i.getOtherDeduction(), i.getNetSalary(), i.getRouteLitres(), i.getVehicleExpenses(),
+                            i.getPaymentStatus().name(),
                             i.getPaymentMethod() == null ? "" : i.getPaymentMethod().name(),
                             i.getPaymentReference() == null ? "" : i.getPaymentReference());
                 }).toList());
@@ -102,6 +107,28 @@ public class DriverSalaryController {
                 .body(body);
     }
 
+    /** One driver's salary statement (PDF): salary, route litres, vehicle expenses, advances. */
+    @GetMapping("/{id}/items/{itemId}/statement")
+    @PreAuthorize("hasAnyAuthority('VIEW_PAYMENTS','VIEW_REPORTS','EXPORT_REPORTS','GENERATE_SETTLEMENT')")
+    public ResponseEntity<byte[]> statement(@PathVariable long id, @PathVariable long itemId,
+                                            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "false") boolean download) {
+        return pdf(statements.statementPdf(id, itemId), statements.fileName(id, itemId) + ".pdf", download);
+    }
+
+    /** Every driver's statement of the month in one PDF. */
+    @GetMapping("/{id}/statements")
+    @PreAuthorize("hasAnyAuthority('VIEW_PAYMENTS','VIEW_REPORTS','EXPORT_REPORTS','GENERATE_SETTLEMENT')")
+    public ResponseEntity<byte[]> allStatements(@PathVariable long id) {
+        return pdf(statements.allStatementsPdf(id), "salary-statements-" + service.require(id).getBatchNumber() + ".pdf", true);
+    }
+
+    private static ResponseEntity<byte[]> pdf(byte[] body, String fileName, boolean download) {
+        ContentDisposition cd = (download ? ContentDisposition.attachment() : ContentDisposition.inline())
+                .filename(fileName).build();
+        return ResponseEntity.ok().header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, cd.toString())
+                .contentType(MediaType.APPLICATION_PDF).body(body);
+    }
+
     @GetMapping
     @PreAuthorize("hasAnyAuthority('VIEW_PAYMENTS','GENERATE_SETTLEMENT')")
     public List<BatchSummary> list() {
@@ -111,7 +138,7 @@ public class DriverSalaryController {
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyAuthority('VIEW_PAYMENTS','GENERATE_SETTLEMENT')")
     public BatchDetail get(@PathVariable long id) {
-        return BatchDetail.from(service.require(id), service.items(id));
+        return BatchDetail.from(service.require(id), service.items(id), service.bankSubmissionOf(id).orElse(null));
     }
 
     @GetMapping("/payments")
@@ -173,6 +200,15 @@ public class DriverSalaryController {
         return BatchDetail.from(service.require(id), service.items(id));
     }
 
+    /** Record that the approved batch was handed to the bank. Nothing is sent from the application. */
+    @PostMapping("/{id}/bank-submission")
+    @PreAuthorize("hasAnyAuthority('APPROVE_SETTLEMENT','SUBMIT_TO_BANK','PROCESS_PAYMENT')")
+    public BatchDetail submitToBank(@PathVariable long id, @RequestBody(required = false) SubmitRequest r) {
+        service.recordBankSubmission(id, r == null ? null : r.submittedOn(), r == null ? null : r.bankReference(),
+                r == null ? null : r.note());
+        return BatchDetail.from(service.require(id), service.items(id), service.bankSubmissionOf(id).orElse(null));
+    }
+
     @PostMapping("/{id}/cancel")
     @PreAuthorize("hasAuthority('APPROVE_SETTLEMENT')")
     public BatchDetail cancel(@PathVariable long id) {
@@ -209,6 +245,9 @@ public class DriverSalaryController {
     public record CreateBatchRequest(@NotNull LocalDate month) {
     }
 
+    public record SubmitRequest(LocalDate submittedOn, String bankReference, String note) {
+    }
+
     public record PayRequest(PaymentMethod method, String reference, String note) {
     }
 
@@ -232,15 +271,27 @@ public class DriverSalaryController {
             int totalDrivers, BigDecimal totalGross, BigDecimal totalAllowances, BigDecimal totalOvertime,
             BigDecimal totalDeductions, BigDecimal totalNet, BigDecimal totalPaid,
             Instant calculatedAt, Instant reviewedAt, Instant approvedAt, Instant cancelledAt,
+            BankSubmissionResponse bankSubmission,
             List<ItemResponse> items) {
 
         static BatchDetail from(DriverSalaryBatch b, List<DriverSalaryItem> items) {
+            return from(b, items, null);
+        }
+
+        static BatchDetail from(DriverSalaryBatch b, List<DriverSalaryItem> items,
+                                com.sasimilkservice.driversalary.domain.DriverSalaryBankSubmission sub) {
             return new BatchDetail(b.getId(), b.getBatchNumber(), b.getBatchType(), b.getPeriodMonth(),
                     b.getStatus().name(), b.getTotalDrivers(), b.getTotalGross(), b.getTotalAllowances(),
                     b.getTotalOvertime(), b.getTotalDeductions(), b.getTotalNet(), b.getTotalPaid(),
                     b.getCalculatedAt(), b.getReviewedAt(), b.getApprovedAt(), b.getCancelledAt(),
+                    sub == null ? null : new BankSubmissionResponse(sub.getSubmittedOn(), sub.getBankReference(),
+                            sub.getNote(), sub.getDriverCount(), sub.getTotalAmount()),
                     items.stream().map(ItemResponse::from).toList());
         }
+    }
+
+    public record BankSubmissionResponse(LocalDate submittedOn, String bankReference, String note,
+                                         int driverCount, BigDecimal totalAmount) {
     }
 
     public record ItemResponse(
@@ -249,7 +300,7 @@ public class DriverSalaryController {
             BigDecimal otherEarnings, BigDecimal salaryAdvance, BigDecimal loanRecovery, BigDecimal penalty,
             BigDecimal otherDeduction, BigDecimal grossAmount, BigDecimal totalDeduction, BigDecimal netSalary,
             String paymentStatus, String paymentMethod, String paymentReference, Instant paidAt,
-            String failureReason, String note) {
+            String failureReason, String note, BigDecimal routeLitres, BigDecimal vehicleExpenses) {
 
         static ItemResponse from(DriverSalaryItem i) {
             return new ItemResponse(i.getId(), i.getBatchId(), i.getDriverId(), i.getVehicleId(), i.getSalaryType(),
@@ -257,7 +308,8 @@ public class DriverSalaryController {
                     i.getOtherEarnings(), i.getSalaryAdvance(), i.getLoanRecovery(), i.getPenalty(),
                     i.getOtherDeduction(), i.getGrossAmount(), i.getTotalDeduction(), i.getNetSalary(),
                     i.getPaymentStatus().name(), i.getPaymentMethod() == null ? null : i.getPaymentMethod().name(),
-                    i.getPaymentReference(), i.getPaidAt(), i.getFailureReason(), i.getNote());
+                    i.getPaymentReference(), i.getPaidAt(), i.getFailureReason(), i.getNote(),
+                    i.getRouteLitres(), i.getVehicleExpenses());
         }
     }
 }

@@ -26,6 +26,10 @@ import com.sasimilkservice.settlement.domain.Settlement;
 import com.sasimilkservice.settlement.domain.SettlementAdjustment;
 import com.sasimilkservice.settlement.domain.SettlementItem;
 import com.sasimilkservice.settlement.repository.SettlementAdjustmentRepository;
+import com.sasimilkservice.settlement.repository.SettlementBankSubmissionRepository;
+import com.sasimilkservice.settlement.repository.SettlementStatusHistoryRepository;
+import com.sasimilkservice.settlement.domain.SettlementBankSubmission;
+import com.sasimilkservice.settlement.domain.SettlementStatusHistory;
 import com.sasimilkservice.settlement.repository.SettlementItemRepository;
 import com.sasimilkservice.settlement.repository.SettlementRepository;
 import com.sasimilkservice.settlement.spi.SettlementPayoutGateway;
@@ -43,6 +47,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -60,6 +65,8 @@ public class SettlementService implements SettlementPayoutGateway {
     private final SettlementRepository settlements;
     private final SettlementItemRepository items;
     private final SettlementAdjustmentRepository adjustments;
+    private final SettlementBankSubmissionRepository submissions;
+    private final SettlementStatusHistoryRepository history;
     private final SettlementNumberGenerator numberGenerator;
     private final SettlementCalculator calculator;
     private final CollectionSettlementGateway collections;
@@ -69,12 +76,15 @@ public class SettlementService implements SettlementPayoutGateway {
     private final CenterService centerService;
     private final BankAccountResolver bankAccounts;
     private final ProducerDirectory producerDirectory;
+    private final com.sasimilkservice.region.spi.RegionDirectory regionDirectory;
     private final PaymentOpsService paymentOps;
     private final AuditRecorder audit;
 
     public SettlementService(SettlementRepository settlements,
                              SettlementItemRepository items,
                              SettlementAdjustmentRepository adjustments,
+                             SettlementBankSubmissionRepository submissions,
+                             SettlementStatusHistoryRepository history,
                              SettlementNumberGenerator numberGenerator,
                              SettlementCalculator calculator,
                              CollectionSettlementGateway collections,
@@ -84,11 +94,14 @@ public class SettlementService implements SettlementPayoutGateway {
                              CenterService centerService,
                              BankAccountResolver bankAccounts,
                              ProducerDirectory producerDirectory,
+                             com.sasimilkservice.region.spi.RegionDirectory regionDirectory,
                              PaymentOpsService paymentOps,
                              AuditRecorder audit) {
         this.settlements = settlements;
         this.items = items;
         this.adjustments = adjustments;
+        this.submissions = submissions;
+        this.history = history;
         this.numberGenerator = numberGenerator;
         this.calculator = calculator;
         this.collections = collections;
@@ -98,6 +111,7 @@ public class SettlementService implements SettlementPayoutGateway {
         this.centerService = centerService;
         this.bankAccounts = bankAccounts;
         this.producerDirectory = producerDirectory;
+        this.regionDirectory = regionDirectory;
         this.paymentOps = paymentOps;
         this.audit = audit;
     }
@@ -126,10 +140,27 @@ public class SettlementService implements SettlementPayoutGateway {
 
     @Transactional
     public Settlement create(LocalDate periodStart, LocalDate periodEnd, Settlement.PaymentFrequency frequency) {
+        return create(periodStart, periodEnd, frequency, null);
+    }
+
+    /** @param regionId limit the batch to one region/area; null pays every region */
+    @Transactional
+    public Settlement create(LocalDate periodStart, LocalDate periodEnd, Settlement.PaymentFrequency frequency,
+                             Long regionId) {
         if (periodEnd.isBefore(periodStart)) {
             throw new BusinessRuleException("periodEnd must not be before periodStart");
         }
+        Settlement.PaymentFrequency freq = frequency == null ? Settlement.PaymentFrequency.ALL : frequency;
+        if (regionId != null && !regionDirectory.isActive(regionId)) {
+            throw new BusinessRuleException("Region " + regionId + " is not an active region");
+        }
+        if (settlements.existsOverlapOfOtherScope(freq, periodStart, periodEnd, regionId != null)) {
+            throw new BusinessRuleException(regionId != null
+                    ? "An all-regions payment batch already covers this period — use it, or cancel it first"
+                    : "Region payment batches already exist for this period — an all-regions batch would overlap them");
+        }
         Settlement s = new Settlement();
+        s.setRegionId(regionId);
         s.setSettlementNumber(numberGenerator.next(periodStart));
         s.setPeriodStart(periodStart);
         s.setPeriodEnd(periodEnd);
@@ -138,6 +169,8 @@ public class SettlementService implements SettlementPayoutGateway {
         // DB constraint ex_settlement_no_overlap rejects overlapping non-cancelled periods
         // for the SAME payment_frequency scope (weekly and monthly runs may overlap).
         s = settlements.save(s);
+        record(s.getId(), SettlementStatusHistory.SubjectType.SETTLEMENT, s.getId(), null,
+                s.getStatus().name(), "Payment batch created for " + periodStart + " to " + periodEnd);
         audit.record("SETTLEMENT_CREATED", "Settlement", s.getId(),
                 "%s settlement %s for %s..%s".formatted(
                         s.getPaymentFrequency(), s.getSettlementNumber(), periodStart, periodEnd));
@@ -155,7 +188,9 @@ public class SettlementService implements SettlementPayoutGateway {
             unwind(s); // recalculate: discard prior items and their links
         }
 
-        int pendingQuality = collections.pendingQualityCount(s.getPeriodStart(), s.getPeriodEnd());
+        int pendingQuality = s.getRegionId() == null
+                ? collections.pendingQualityCount(s.getPeriodStart(), s.getPeriodEnd())
+                : collections.pendingQualityCount(s.getPeriodStart(), s.getPeriodEnd(), s.getRegionId());
         if (pendingQuality > 0) {
             throw new BusinessRuleException(pendingQuality + " collection(s) in "
                     + s.getPeriodStart() + " to " + s.getPeriodEnd()
@@ -171,6 +206,12 @@ public class SettlementService implements SettlementPayoutGateway {
                 .unsettledConfirmed(s.getPeriodStart(), s.getPeriodEnd()).stream()
                 .collect(Collectors.groupingBy(SettlementCollectionRow::producerId, LinkedHashMap::new,
                         Collectors.toList()));
+
+        // A region batch pays only the collections recorded in its region.
+        if (s.getRegionId() != null) {
+            byProducer.values().forEach(list -> list.removeIf(r -> !s.getRegionId().equals(r.regionId())));
+            byProducer.values().removeIf(List::isEmpty);
+        }
 
         // A weekly / monthly run only pays producers configured for that frequency.
         if (s.getPaymentFrequency() != Settlement.PaymentFrequency.ALL) {
@@ -249,7 +290,7 @@ public class SettlementService implements SettlementPayoutGateway {
         s.setTotalRoundOff(MoneyMath.money(tRound));
         s.setTotalNetPayable(MoneyMath.money(tNet));
         s.setCalcEngineVersion(calculator.engineVersion());
-        s.setStatus(Settlement.Status.CALCULATED);
+        changeStatus(s, Settlement.Status.CALCULATED, null);
         s.setCalculatedAt(Instant.now());
         CurrentUser.id().ifPresent(s::setCalculatedBy);
         Map<String, Object> snap = new HashMap<>();
@@ -309,6 +350,9 @@ public class SettlementService implements SettlementPayoutGateway {
         item.setVerifiedAmount(null);
         item.setVerifiedAt(null);
         item.setVerifiedBy(null);
+        item.setBillNumber(null);
+        item.setBillGeneratedAt(null);
+        item.setBillGeneratedBy(null);
         recomputeVerificationState(s);
         audit.record("PAYMENT_VERIFICATION_CLEARED", "SettlementItem", item.getId(),
                 "Producer %d line un-verified on %s".formatted(item.getProducerId(), s.getSettlementNumber()));
@@ -439,7 +483,7 @@ public class SettlementService implements SettlementPayoutGateway {
         if (!confirmed) {
             throw new BusinessRuleException("Approval must be explicitly confirmed by the owner / manager");
         }
-        s.setStatus(Settlement.Status.APPROVED);
+        changeStatus(s, Settlement.Status.APPROVED, null);
         s.setApprovedAt(Instant.now());
         CurrentUser.id().ifPresent(s::setApprovedBy);
         audit.record("SETTLEMENT_APPROVED", "Settlement", s.getId(),
@@ -464,18 +508,18 @@ public class SettlementService implements SettlementPayoutGateway {
         }
         List<SettlementItem> lines = items.findBySettlementIdOrderByProducerIdAsc(s.getId());
         if (lines.isEmpty()) {
-            s.setStatus(Settlement.Status.CALCULATED);
+            changeStatus(s, Settlement.Status.CALCULATED, null);
             return;
         }
         long verified = lines.stream()
                 .filter(i -> i.getVerificationStatus() == SettlementItem.VerificationStatus.VERIFIED)
                 .count();
         if (verified == lines.size()) {
-            s.setStatus(Settlement.Status.VERIFIED);
+            changeStatus(s, Settlement.Status.VERIFIED, null);
         } else if (verified > 0) {
-            s.setStatus(Settlement.Status.UNDER_VERIFICATION);
+            changeStatus(s, Settlement.Status.UNDER_VERIFICATION, null);
         } else {
-            s.setStatus(Settlement.Status.CALCULATED);
+            changeStatus(s, Settlement.Status.CALCULATED, null);
         }
     }
 
@@ -492,7 +536,7 @@ public class SettlementService implements SettlementPayoutGateway {
             throw new BusinessRuleException("An approved settlement cannot be cancelled");
         }
         unwind(s);
-        s.setStatus(Settlement.Status.CANCELLED);
+        changeStatus(s, Settlement.Status.CANCELLED, null);
         s.setCancelledAt(Instant.now());
         CurrentUser.id().ifPresent(s::setCancelledBy);
         audit.record("SETTLEMENT_CREATED", "Settlement", s.getId(),
@@ -553,7 +597,7 @@ public class SettlementService implements SettlementPayoutGateway {
     public void markPayoutInitiated(long settlementId) {
         Settlement s = require(settlementId);
         if (s.getStatus() == Settlement.Status.APPROVED) {
-            s.setStatus(Settlement.Status.PAYOUT_INITIATED);
+            changeStatus(s, Settlement.Status.PAYOUT_INITIATED, null);
         }
     }
 
@@ -562,9 +606,15 @@ public class SettlementService implements SettlementPayoutGateway {
     public void updateItemPaymentStatus(long settlementItemId, ItemPaymentStatus status, String reference) {
         SettlementItem item = items.findById(settlementItemId)
                 .orElseThrow(() -> NotFoundException.of("SettlementItem", settlementItemId));
+        SettlementItem.PaymentStatus before = item.getPaymentStatus();
         item.setPaymentStatus(SettlementItem.PaymentStatus.valueOf(status.name()));
         if (reference != null) {
             item.setPaymentReference(reference);
+        }
+        if (before != item.getPaymentStatus()) {
+            record(item.getSettlementId(), SettlementStatusHistory.SubjectType.ITEM, item.getId(),
+                    before.name(), item.getPaymentStatus().name(),
+                    reference == null ? null : "Bank reference " + reference);
         }
     }
 
@@ -581,14 +631,123 @@ public class SettlementService implements SettlementPayoutGateway {
         long done = success + failed;
 
         if (success == all.size()) {
-            s.setStatus(Settlement.Status.PAID);
+            changeStatus(s, Settlement.Status.PAID, null);
         } else if (done == all.size()) {
-            s.setStatus(Settlement.Status.FAILED);
+            changeStatus(s, Settlement.Status.FAILED, null);
         } else if (success > 0 || failed > 0) {
-            s.setStatus(Settlement.Status.PARTIALLY_PAID);
+            changeStatus(s, Settlement.Status.PARTIALLY_PAID, null);
         } else {
-            s.setStatus(Settlement.Status.PAYOUT_INITIATED);
+            changeStatus(s, Settlement.Status.PAYOUT_INITIATED, null);
         }
+    }
+
+    // ---- bills, bank submission and history ----
+
+    private static final Set<Settlement.Status> BILLABLE = Set.of(
+            Settlement.Status.VERIFIED, Settlement.Status.APPROVED, Settlement.Status.PAYOUT_INITIATED,
+            Settlement.Status.PARTIALLY_PAID, Settlement.Status.PAID);
+
+    /** Change a run's status and leave a trail; a no-op when the status is already that. */
+    private void changeStatus(Settlement s, Settlement.Status to, String note) {
+        Settlement.Status from = s.getStatus();
+        if (from == to) {
+            return;
+        }
+        s.setStatus(to);
+        record(s.getId(), SettlementStatusHistory.SubjectType.SETTLEMENT, s.getId(), from.name(), to.name(), note);
+    }
+
+    private void record(Long settlementId, SettlementStatusHistory.SubjectType type, Long subjectId,
+                        String from, String to, String note) {
+        if (settlementId == null) {
+            return;
+        }
+        SettlementStatusHistory h = new SettlementStatusHistory();
+        h.setSettlementId(settlementId);
+        h.setSubjectType(type);
+        h.setSubjectId(subjectId);
+        h.setFromStatus(from);
+        h.setToStatus(to);
+        h.setNote(note);
+        CurrentUser.id().ifPresent(h::setChangedBy);
+        history.save(h);
+    }
+
+    public List<SettlementStatusHistory> historyOf(long settlementId) {
+        require(settlementId);
+        return history.findBySettlementIdOrderByIdDesc(settlementId);
+    }
+
+    public Optional<SettlementBankSubmission> bankSubmissionOf(long settlementId) {
+        return submissions.findBySettlementId(settlementId);
+    }
+
+    /**
+     * Give every producer line a bill number. Only allowed once every line is verified, so a bill
+     * always reflects checked collections. Safe to repeat — lines that already have a number keep it.
+     *
+     * @return how many bills were newly numbered
+     */
+    @Transactional
+    public int generateBills(long settlementId) {
+        Settlement s = require(settlementId);
+        if (!BILLABLE.contains(s.getStatus())) {
+            throw new BusinessRuleException(
+                    "Bills can be generated once every producer's collections are verified");
+        }
+        List<SettlementItem> lines = items.findBySettlementIdOrderByProducerIdAsc(settlementId);
+        if (lines.isEmpty()) {
+            throw new BusinessRuleException("There are no producer lines to bill");
+        }
+        if (lines.stream().anyMatch(i -> i.getVerificationStatus() != SettlementItem.VerificationStatus.VERIFIED)) {
+            throw new BusinessRuleException("Verify every producer before generating bills");
+        }
+        int generated = 0;
+        int index = 0;
+        for (SettlementItem line : lines) {
+            index++;
+            if (line.getBillNumber() != null) {
+                continue;
+            }
+            line.setBillNumber("%s-B%03d".formatted(s.getSettlementNumber(), index));
+            line.setBillGeneratedAt(Instant.now());
+            CurrentUser.id().ifPresent(line::setBillGeneratedBy);
+            generated++;
+        }
+        if (generated > 0) {
+            record(settlementId, SettlementStatusHistory.SubjectType.SETTLEMENT, settlementId,
+                    s.getStatus().name(), s.getStatus().name(), generated + " bill(s) generated");
+            audit.record("SETTLEMENT_BILLS_GENERATED", "Settlement", settlementId,
+                    "%d bill(s) generated for %s".formatted(generated, s.getSettlementNumber()));
+        }
+        return generated;
+    }
+
+    @Override
+    @Transactional
+    public void recordBankSubmission(long settlementId, LocalDate submittedOn, String reference, String note) {
+        Settlement s = require(settlementId);
+        if (s.getStatus() != Settlement.Status.APPROVED || submissions.findBySettlementId(settlementId).isPresent()) {
+            // Re-running payouts for a batch that is already with the bank (a held line got a bank account,
+            // a failed one is retried) — the original submission record stands.
+            return;
+        }
+        List<SettlementItem> payable = items.findBySettlementIdOrderByProducerIdAsc(settlementId).stream()
+                .filter(i -> MoneyMath.money(i.getNetPayable()).signum() > 0)
+                .toList();
+        SettlementBankSubmission sub = new SettlementBankSubmission();
+        sub.setSettlementId(settlementId);
+        sub.setSubmittedOn(submittedOn == null ? LocalDate.now() : submittedOn);
+        sub.setBankReference(reference == null || reference.isBlank() ? null : reference.trim());
+        sub.setNote(note == null || note.isBlank() ? null : note.trim());
+        sub.setProducerCount(payable.size());
+        sub.setTotalAmount(payable.stream().map(SettlementItem::getNetPayable)
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
+        CurrentUser.id().ifPresent(sub::setSubmittedBy);
+        submissions.save(sub);
+        audit.record("SETTLEMENT_SUBMITTED_TO_BANK", "Settlement", settlementId,
+                "%s submitted to the bank on %s (%d producers, %s)".formatted(
+                        s.getSettlementNumber(), sub.getSubmittedOn(), sub.getProducerCount(), sub.getTotalAmount()));
     }
 
     // ---- internals ----
@@ -658,7 +817,7 @@ public class SettlementService implements SettlementPayoutGateway {
             throw new BusinessRuleException(
                     "Settlement is " + s.getStatus() + "; expected " + from + " for this action");
         }
-        s.setStatus(to);
+        changeStatus(s, to, null);
         return s;
     }
 

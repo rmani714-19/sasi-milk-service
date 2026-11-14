@@ -2,7 +2,6 @@ package com.sasimilkservice.payout.api;
 
 import com.sasimilkservice.payout.domain.Payout;
 import com.sasimilkservice.payout.service.PayoutService;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpStatus;
@@ -18,10 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.Enumeration;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -35,9 +31,13 @@ public class PayoutController {
 
     @PostMapping("/settlements/{settlementId}/payouts")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAuthority('APPROVE_SETTLEMENT')")
-    public List<PayoutResponse> initiate(@PathVariable long settlementId) {
-        return service.initiate(settlementId).stream().map(PayoutResponse::from).toList();
+    @PreAuthorize("hasAnyAuthority('APPROVE_SETTLEMENT','SUBMIT_TO_BANK')")
+    public List<PayoutResponse> initiate(@PathVariable long settlementId,
+                                         @RequestBody(required = false) SubmitToBankRequest r) {
+        var rows = r == null
+                ? service.initiate(settlementId)
+                : service.initiate(settlementId, r.submittedOn(), r.bankReference(), r.note());
+        return rows.stream().map(PayoutResponse::from).toList();
     }
 
     @GetMapping("/payouts")
@@ -54,49 +54,28 @@ public class PayoutController {
     }
 
     @PostMapping("/payouts/{id}/retry")
-    @PreAuthorize("hasAuthority('APPROVE_SETTLEMENT')")
+    @PreAuthorize("hasAnyAuthority('APPROVE_SETTLEMENT','CONFIRM_PAYMENT')")
     public PayoutResponse retry(@PathVariable long id) {
         return PayoutResponse.from(service.retry(id));
     }
 
     @PostMapping("/payouts/{id}/mark-paid")
-    @PreAuthorize("hasAuthority('APPROVE_SETTLEMENT')")
+    @PreAuthorize("hasAnyAuthority('APPROVE_SETTLEMENT','CONFIRM_PAYMENT')")
     public PayoutResponse markPaid(@PathVariable long id, @Valid @RequestBody MarkPaidRequest r) {
-        return PayoutResponse.from(service.markPaid(id, r.utr()));
+        return PayoutResponse.from(service.markPaid(id, r.utr(), r.paidOn()));
     }
 
     @PostMapping("/payouts/{id}/mark-failed")
-    @PreAuthorize("hasAuthority('APPROVE_SETTLEMENT')")
+    @PreAuthorize("hasAnyAuthority('APPROVE_SETTLEMENT','CONFIRM_PAYMENT')")
     public PayoutResponse markFailed(@PathVariable long id, @Valid @RequestBody MarkFailedRequest r) {
         return PayoutResponse.from(service.markFailed(id, r.reason()));
     }
 
-    /** Provider webhook — authenticated by signature inside the provider adapter, not by JWT. */
-    @PostMapping({"/payouts/webhook", "/payments/webhooks/razorpayx"})
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void webhook(@RequestBody(required = false) String body, HttpServletRequest request) {
-        Map<String, String> headers = new HashMap<>();
-        Enumeration<String> names = request.getHeaderNames();
-        while (names.hasMoreElements()) {
-            String n = names.nextElement();
-            headers.put(n.toLowerCase(), request.getHeader(n));
-        }
-        service.handleWebhook(body == null ? "" : body, headers);
+    public record MarkPaidRequest(@NotBlank String utr, java.time.LocalDate paidOn) {
     }
 
-    /** Owner account balance from the payout provider, when it exposes one. */
-    @GetMapping("/payments/provider/balance")
-    @PreAuthorize("hasAnyAuthority('VIEW_PAYMENTS','VERIFY_PAYMENT','APPROVE_SETTLEMENT','PROCESS_PAYMENT')")
-    public ProviderBalanceResponse providerBalance() {
-        return service.providerBalance()
-                .map(b -> new ProviderBalanceResponse(service.providerName(), b.available(), b.currency(), true))
-                .orElse(new ProviderBalanceResponse(service.providerName(), null, "INR", false));
-    }
-
-    public record ProviderBalanceResponse(String provider, BigDecimal available, String currency, boolean supported) {
-    }
-
-    public record MarkPaidRequest(@NotBlank String utr) {
+    /** Paperwork for handing a batch to the bank — no transfer is made by the application. */
+    public record SubmitToBankRequest(java.time.LocalDate submittedOn, String bankReference, String note) {
     }
 
     public record MarkFailedRequest(@NotBlank String reason) {
