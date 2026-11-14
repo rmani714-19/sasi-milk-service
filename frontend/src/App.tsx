@@ -5,6 +5,7 @@ import { useAuth } from './lib/auth';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { CollectionPage } from './pages/CollectionPage';
+import { CollectionsPage } from './pages/CollectionsPage';
 import { ProducersPage } from './pages/ProducersPage';
 import { ProducerDetailPage } from './pages/ProducerDetailPage';
 import { RegionsPage } from './pages/RegionsPage';
@@ -38,6 +39,7 @@ export function App() {
         <Route element={user ? <AppLayout /> : <Navigate to="/login" replace />}>
           <Route index element={<DashboardPage />} />
           <Route path="collection" element={<CollectionPage />} />
+          <Route path="collections" element={<CollectionsPage />} />
           <Route path="producers" element={<ProducersPage />} />
           <Route path="producers/:id" element={<ProducerDetailPage />} />
           <Route path="regions" element={<RegionsPage />} />

@@ -20,6 +20,9 @@ public interface ProducerDirectory {
      */
     List<Long> producerIdsByPaymentFrequency(String frequency);
 
+    /** Ids of producers whose number or name contains {@code text} (case-insensitive). */
+    List<Long> searchIds(String text);
+
     record ProducerView(
             Long id,
             String publicId,

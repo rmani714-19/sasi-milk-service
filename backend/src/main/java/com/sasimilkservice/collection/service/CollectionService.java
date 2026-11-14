@@ -24,7 +24,9 @@ import com.sasimilkservice.rate.spi.RateResolutionService.ResolveRateQuery;
 import com.sasimilkservice.rate.spi.RateResolutionService.ResolvedRate;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -80,6 +82,76 @@ public class CollectionService implements CollectionSettlementGateway {
     public Page<MilkCollection> search(Long producerId, LocalDate date, String shift,
                                       MilkCollection.Status status, Pageable pageable) {
         return collections.search(producerId, date, shift, status, pageable);
+    }
+
+    /**
+     * Owner browse: any date range, shift, producer number/name text, with sorting.
+     * {@code sort} is one of litres_desc / litres_asc / amount_desc / amount_asc / date_asc
+     * (default newest first).
+     */
+    public Page<MilkCollection> browse(LocalDate from, LocalDate to, String shift, MilkCollection.Status status,
+                                       String q, String sort, int page, int size) {
+        boolean filterProducers = q != null && !q.isBlank();
+        List<Long> ids = filterProducers ? producers.searchIds(q) : List.of(-1L);
+        if (filterProducers && ids.isEmpty()) {
+            return Page.empty(PageRequest.of(page, size));
+        }
+        Sort order = switch (sort == null ? "" : sort) {
+            case "litres_desc" -> Sort.by(Sort.Order.desc("milkQuantityLitres"), Sort.Order.desc("id"));
+            case "litres_asc" -> Sort.by(Sort.Order.asc("milkQuantityLitres"), Sort.Order.desc("id"));
+            case "amount_desc" -> Sort.by(Sort.Order.desc("netAmount"), Sort.Order.desc("id"));
+            case "amount_asc" -> Sort.by(Sort.Order.asc("netAmount"), Sort.Order.desc("id"));
+            case "date_asc" -> Sort.by(Sort.Order.asc("collectionDate"), Sort.Order.asc("id"));
+            default -> Sort.by(Sort.Order.desc("collectionDate"), Sort.Order.desc("id"));
+        };
+        String shiftFilter = shift == null || shift.isBlank() ? null : shift;
+        return collections.browse(from, to, shiftFilter, status, filterProducers, ids,
+                PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 200), order));
+    }
+
+    /**
+     * Owner correction of a collection's litres / FAT / SNF. Blocked once the milk is part of a
+     * settlement (or voided). If FAT + SNF are known the rate and amount are recomputed.
+     */
+    @Transactional
+    public MilkCollection updateCollection(UUID publicId, BigDecimal litres, BigDecimal fat, BigDecimal snf) {
+        MilkCollection c = requireByPublicId(publicId);
+        if (c.getStatus() == MilkCollection.Status.VOID) {
+            throw new BusinessRuleException("A voided collection cannot be edited");
+        }
+        if (c.getSettlementItemId() != null) {
+            throw new BusinessRuleException(
+                    "This collection is already part of a settlement run — cancel or recalculate that run first");
+        }
+        if (litres == null || litres.signum() <= 0) {
+            throw new BusinessRuleException("Litres must be greater than zero");
+        }
+        if ((fat == null) != (snf == null)) {
+            throw new BusinessRuleException("Enter both FAT and SNF, or leave both blank to keep the current quality");
+        }
+        BigDecimal effFat = fat != null ? fat : c.getFatPercentage();
+        BigDecimal effSnf = snf != null ? snf : c.getSnfPercentage();
+        boolean wasPending = c.isQualityPending();
+        BigDecimal oldLitres = c.getMilkQuantityLitres();
+        BigDecimal oldNet = c.getNetAmount();
+
+        c.setMilkQuantityLitres(litres);
+        long producerId = c.getProducerId();
+        ProducerView producer = producers.findById(producerId)
+                .orElseThrow(() -> new NotFoundException("Producer " + producerId + " not found"));
+        if (effFat != null && effSnf != null) {
+            priceCollection(c, producer, centerService.settings(), c.getCollectionDate(), litres, effFat, effSnf);
+            c.setStatus(MilkCollection.Status.CONFIRMED);
+        }
+        collections.saveAndFlush(c);
+
+        audit.record("COLLECTION_UPDATED", "MilkCollection", c.getId(),
+                "Collection %s edited by owner: litres %s -> %s, FAT %s, SNF %s, amount %s -> %s".formatted(
+                        c.getCollectionNumber(), oldLitres, litres, effFat, effSnf, oldNet, c.getNetAmount()));
+        if (wasPending && !c.isQualityPending()) {
+            publishCreatedNotification(c, producer);
+        }
+        return c;
     }
 
     public MilkCollection requireByPublicId(UUID publicId) {

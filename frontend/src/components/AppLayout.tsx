@@ -29,6 +29,7 @@ import WbSunnyOutlinedIcon from '@mui/icons-material/WbSunnyOutlined';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import LocalDrinkOutlinedIcon from '@mui/icons-material/LocalDrinkOutlined';
+import ListAltOutlinedIcon from '@mui/icons-material/ListAltOutlined';
 import PeopleOutlinedIcon from '@mui/icons-material/PeopleOutlined';
 import CardGiftcardOutlinedIcon from '@mui/icons-material/CardGiftcardOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
@@ -65,6 +66,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: <DashboardOutlinedIcon />, perm: 'VIEW_DASHBOARD' },
   { to: '/collection', label: 'Milk Collection', icon: <LocalDrinkOutlinedIcon />, perm: 'CREATE_COLLECTION' },
+  { to: '/collections', label: 'Collections', icon: <ListAltOutlinedIcon />, perm: 'VIEW_COLLECTIONS' },
   { to: '/producers', label: 'Producers', icon: <PeopleOutlinedIcon />, perm: 'VIEW_PRODUCERS' },
   { to: '/regions', label: 'Regions', icon: <PlaceOutlinedIcon />, perm: 'MANAGE_RATES' },
   { to: '/incentives', label: 'Incentives', icon: <CardGiftcardOutlinedIcon />, perm: 'MANAGE_INCENTIVES' },

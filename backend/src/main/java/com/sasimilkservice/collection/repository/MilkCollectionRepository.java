@@ -33,6 +33,23 @@ public interface MilkCollectionRepository extends JpaRepository<MilkCollection, 
                                 @Param("status") MilkCollection.Status status,
                                 Pageable pageable);
 
+    // Owner-facing browse: date range, producer set, shift, status; ordering comes from the Pageable's Sort.
+    @Query("""
+            select c from MilkCollection c
+            where (cast(:from as date) is null or c.collectionDate >= :from)
+              and (cast(:to as date) is null or c.collectionDate <= :to)
+              and (cast(:shift as string) is null or c.shift = :shift)
+              and (cast(:status as string) is null or c.status = :status)
+              and (:filterProducers = false or c.producerId in :producerIds)
+            """)
+    Page<MilkCollection> browse(@Param("from") LocalDate from,
+                                @Param("to") LocalDate to,
+                                @Param("shift") String shift,
+                                @Param("status") MilkCollection.Status status,
+                                @Param("filterProducers") boolean filterProducers,
+                                @Param("producerIds") List<Long> producerIds,
+                                Pageable pageable);
+
     @Query(value = "select nextval('collection_number_seq')", nativeQuery = true)
     long nextCollectionNumberValue();
 

@@ -36,6 +36,13 @@ public interface ProducerRepository extends JpaRepository<Producer, Long> {
                           @Param("q") String q,
                           Pageable pageable);
 
+    @Query("""
+            select p.id from Producer p
+            where lower(p.producerName) like lower(concat('%', :q, '%'))
+               or lower(p.producerNumber) like lower(concat('%', :q, '%'))
+            """)
+    List<Long> findIdsMatching(@Param("q") String q);
+
     @Query(value = "select nextval('producer_number_seq')", nativeQuery = true)
     long nextProducerNumberValue();
 }

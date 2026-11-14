@@ -35,6 +35,13 @@ public final class CollectionDtos {
         }
     }
 
+    /** Owner edit — FAT and SNF are both given, or both omitted to keep the existing quality. */
+    public record UpdateCollectionRequest(
+            @NotNull @DecimalMin(value = "0.0", inclusive = false) BigDecimal litres,
+            @DecimalMin(value = "0.0", inclusive = false) BigDecimal fat,
+            @DecimalMin(value = "0.0", inclusive = false) BigDecimal snf) {
+    }
+
     public record VoidCollectionRequest(@NotBlank String reason) {
     }
 

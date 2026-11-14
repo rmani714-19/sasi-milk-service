@@ -308,6 +308,11 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
     }
 
     @Override
+    public List<Long> searchIds(String text) {
+        return text == null || text.isBlank() ? List.of() : producers.findIdsMatching(text.trim());
+    }
+
+    @Override
     public Optional<ProducerContact> contact(Long producerId) {
         return producers.findById(producerId)
                 .map(p -> new ProducerContact(p.getId(), p.getProducerName(),
