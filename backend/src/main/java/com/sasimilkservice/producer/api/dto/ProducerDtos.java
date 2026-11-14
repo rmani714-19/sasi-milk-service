@@ -24,7 +24,6 @@ public final class ProducerDtos {
             @Pattern(regexp = MOBILE, message = "must be a 10-digit mobile number") String alternateMobile,
             @Email String email,
             String address,
-            String upiId,
             @Pattern(regexp = AADHAAR, message = "Aadhaar must be 12 digits") String aadhaarNumber,
             Long regionId,
             LocalDate joiningDate,
@@ -33,7 +32,7 @@ public final class ProducerDtos {
 
         public CreateProducerCommand toCommand() {
             return new CreateProducerCommand(producerName, mobileNumber, alternateMobile,
-                    email, address, upiId, aadhaarNumber, regionId, joiningDate, notes,
+                    email, address, aadhaarNumber, regionId, joiningDate, notes,
                     paymentFrequency);
         }
     }
@@ -44,7 +43,6 @@ public final class ProducerDtos {
             @Pattern(regexp = MOBILE, message = "must be a 10-digit mobile number") String alternateMobile,
             @Email String email,
             String address,
-            String upiId,
             @Pattern(regexp = AADHAAR, message = "Aadhaar must be 12 digits") String aadhaarNumber,
             Long regionId,
             String regionChangeReason,
@@ -53,7 +51,7 @@ public final class ProducerDtos {
 
         public UpdateProducerCommand toCommand() {
             return new UpdateProducerCommand(producerName, mobileNumber, alternateMobile, email,
-                    address, upiId, aadhaarNumber, regionId, regionChangeReason, notes,
+                    address, aadhaarNumber, regionId, regionChangeReason, notes,
                     paymentFrequency);
         }
     }
@@ -67,7 +65,6 @@ public final class ProducerDtos {
             String alternateMobile,
             String email,
             String address,
-            String upiId,
             String aadhaarMasked,
             Long regionId,
             LocalDate joiningDate,
@@ -78,7 +75,7 @@ public final class ProducerDtos {
         public static ProducerResponse from(Producer p) {
             return new ProducerResponse(p.getId(), p.getPublicId().toString(), p.getProducerNumber(),
                     p.getProducerName(), p.getMobileNumber(), p.getAlternateMobile(), p.getEmail(),
-                    p.getAddress(), p.getUpiId(),
+                    p.getAddress(),
                     p.getAadhaarLast4() == null ? null : "XXXXXXXX" + p.getAadhaarLast4(),
                     p.getRegionId(), p.getJoiningDate(), p.getStatus().name(),
                     p.getPaymentFrequency().name(), p.getQrCode());

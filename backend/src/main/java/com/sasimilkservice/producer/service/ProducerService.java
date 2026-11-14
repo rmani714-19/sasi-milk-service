@@ -59,7 +59,6 @@ public class ProducerService implements ProducerDirectory {
         p.setProducerName(cmd.producerName());
         p.setMobileNumber(cmd.mobileNumber());
         p.setAlternateMobile(cmd.alternateMobile());
-        p.setUpiId(cmd.upiId());
         p.setEmail(cmd.email());
         p.setAddress(cmd.address());
         p.setRegionId(cmd.regionId());
@@ -82,7 +81,6 @@ public class ProducerService implements ProducerDirectory {
         p.setProducerName(cmd.producerName());
         p.setMobileNumber(cmd.mobileNumber());
         p.setAlternateMobile(cmd.alternateMobile());
-        p.setUpiId(cmd.upiId());
         p.setEmail(cmd.email());
         p.setAddress(cmd.address());
         p.setNotes(cmd.notes());
@@ -212,14 +210,14 @@ public class ProducerService implements ProducerDirectory {
 
     public record CreateProducerCommand(
             String producerName, String mobileNumber, String alternateMobile,
-            String email, String address, String upiId, String aadhaarNumber,
+            String email, String address, String aadhaarNumber,
             Long regionId, java.time.LocalDate joiningDate, String notes,
             String paymentFrequency) {
     }
 
     public record UpdateProducerCommand(
             String producerName, String mobileNumber, String alternateMobile, String email,
-            String address, String upiId, String aadhaarNumber,
+            String address, String aadhaarNumber,
             Long regionId, String regionChangeReason, String notes,
             String paymentFrequency) {
     }

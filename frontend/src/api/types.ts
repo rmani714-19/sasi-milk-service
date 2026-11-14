@@ -23,7 +23,6 @@ export interface Producer {
   alternateMobile?: string;
   email?: string;
   address?: string;
-  upiId?: string;
   aadhaarMasked?: string;
   regionId?: number;
   joiningDate: string;

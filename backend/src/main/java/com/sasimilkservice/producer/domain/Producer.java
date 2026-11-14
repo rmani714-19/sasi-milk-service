@@ -43,9 +43,6 @@ public class Producer extends AuditableEntity {
     @Column(name = "alternate_mobile")
     private String alternateMobile;
 
-    @Column(name = "upi_id")
-    private String upiId;
-
     private String email;
 
     private String address;

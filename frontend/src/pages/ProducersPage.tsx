@@ -190,7 +190,6 @@ const BLANK = {
   alternateMobile: '',
   email: '',
   address: '',
-  upiId: '',
   aadhaarNumber: '',
   regionId: '',
   paymentFrequency: 'WEEKLY',
@@ -233,7 +232,6 @@ function ProducerDialog({
     mobileNumber: V.mobile(f.mobileNumber),
     alternateMobile: V.mobile(f.alternateMobile),
     email: V.email(f.email),
-    upiId: V.upiId(f.upiId),
     aadhaarNumber: V.aadhaar(f.aadhaarNumber),
   };
   const showErr = (k: string) => ((touched[k] || tried) && errors[k]) || '';
@@ -248,7 +246,6 @@ function ProducerDialog({
       alternateMobile: und(f.alternateMobile),
       email: und(f.email),
       address: und(f.address),
-      upiId: und(f.upiId),
       aadhaarNumber: f.aadhaarNumber ? V.onlyDigits(f.aadhaarNumber) : undefined,
       regionId: f.regionId ? Number(f.regionId) : undefined,
       paymentFrequency: f.paymentFrequency,
@@ -326,14 +323,6 @@ function ProducerDialog({
               />
             </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                label="GPay / UPI ID"
-                value={f.upiId}
-                onChange={set('upiId')}
-                onBlur={blur('upiId')}
-                error={!!showErr('upiId')}
-                helperText={showErr('upiId') || 'e.g. ramesh@okhdfcbank'}
-              />
               <TextField
                 label="Email (optional)"
                 value={f.email}

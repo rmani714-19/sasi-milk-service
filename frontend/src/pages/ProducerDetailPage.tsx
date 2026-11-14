@@ -92,7 +92,6 @@ export function ProducerDetailPage() {
                     />
                     <Row label="Mobile" value={p.mobileNumber ?? '—'} />
                     <Row label="Alternate mobile" value={p.alternateMobile ?? '—'} />
-                    <Row label="GPay / UPI" value={p.upiId ?? '—'} />
                     <Row label="Email" value={p.email ?? '—'} />
                     <Row label="Aadhaar" value={p.aadhaarMasked ?? '—'} />
                     <Row label="Address" value={p.address ?? '—'} />
@@ -150,7 +149,6 @@ function EditProducerDialog({
     alternateMobile: producer.alternateMobile ?? '',
     email: producer.email ?? '',
     address: producer.address ?? '',
-    upiId: producer.upiId ?? '',
     regionId: producer.regionId ? String(producer.regionId) : '',
     paymentFrequency: producer.paymentFrequency ?? 'WEEKLY',
     aadhaarNumber: '',
@@ -171,7 +169,6 @@ function EditProducerDialog({
     mobileNumber: V.mobile(f.mobileNumber),
     alternateMobile: V.mobile(f.alternateMobile),
     email: V.email(f.email),
-    upiId: V.upiId(f.upiId),
     aadhaarNumber: V.aadhaar(f.aadhaarNumber),
     regionChangeReason: regionChanged ? V.required('A reason')(f.regionChangeReason) : '',
   };
@@ -214,14 +211,6 @@ function EditProducerDialog({
               />
             </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                label="GPay / UPI ID"
-                value={f.upiId}
-                onChange={set('upiId')}
-                onBlur={blur('upiId')}
-                error={!!showErr('upiId')}
-                helperText={showErr('upiId')}
-              />
               <TextField
                 label="Email"
                 value={f.email}
@@ -293,7 +282,6 @@ function EditProducerDialog({
               alternateMobile: und(f.alternateMobile),
               email: und(f.email),
               address: und(f.address),
-              upiId: und(f.upiId),
               aadhaarNumber: f.aadhaarNumber ? V.onlyDigits(f.aadhaarNumber) : undefined,
               regionId: f.regionId ? Number(f.regionId) : undefined,
               regionChangeReason: und(f.regionChangeReason),
