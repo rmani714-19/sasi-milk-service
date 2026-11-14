@@ -34,7 +34,7 @@ public interface SettlementPayoutGateway {
     record PayableItem(
             long settlementItemId,
             long producerId,
-            Long bankAccountId,
+            Long regionId,
             BigDecimal netPayable,
             ItemPaymentStatus paymentStatus) {
     }

@@ -5,12 +5,9 @@ import com.sasimilkservice.common.crypto.FieldCrypto;
 import com.sasimilkservice.common.error.BusinessRuleException;
 import com.sasimilkservice.common.error.NotFoundException;
 import com.sasimilkservice.producer.domain.Producer;
-import com.sasimilkservice.producer.domain.ProducerBankAccount;
 import com.sasimilkservice.producer.domain.ProducerRegionHistory;
-import com.sasimilkservice.producer.repository.ProducerBankAccountRepository;
 import com.sasimilkservice.producer.repository.ProducerRegionHistoryRepository;
 import com.sasimilkservice.producer.repository.ProducerRepository;
-import com.sasimilkservice.producer.spi.BankAccountResolver;
 import com.sasimilkservice.producer.spi.ProducerDirectory;
 import com.sasimilkservice.region.spi.RegionDirectory;
 import org.springframework.data.domain.Page;
@@ -25,23 +22,20 @@ import java.util.UUID;
 
 @Service
 @Transactional(readOnly = true)
-public class ProducerService implements ProducerDirectory, BankAccountResolver {
+public class ProducerService implements ProducerDirectory {
 
     private final ProducerRepository producers;
-    private final ProducerBankAccountRepository bankAccounts;
     private final ProducerRegionHistoryRepository regionHistory;
     private final RegionDirectory regions;
     private final FieldCrypto crypto;
     private final AuditRecorder audit;
 
     public ProducerService(ProducerRepository producers,
-                           ProducerBankAccountRepository bankAccounts,
                            ProducerRegionHistoryRepository regionHistory,
                            RegionDirectory regions,
                            FieldCrypto crypto,
                            AuditRecorder audit) {
         this.producers = producers;
-        this.bankAccounts = bankAccounts;
         this.regionHistory = regionHistory;
         this.regions = regions;
         this.crypto = crypto;
@@ -76,14 +70,9 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
         if (cmd.joiningDate() != null) {
             p.setJoiningDate(cmd.joiningDate());
         }
-        if (cmd.bank() == null || !cmd.bank().isComplete()) {
-            throw new BusinessRuleException("Bank details (account holder, account number, IFSC) are required");
-        }
-
         p = producers.save(p);
         audit.record("PRODUCER_CREATED", "Producer", p.getId(),
                 "Producer " + p.getProducerNumber() + " created");
-        addBankAccount(p.getId(), cmd.bank());
         return p;
     }
 
@@ -133,106 +122,6 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
         audit.record("PRODUCER_DEACTIVATED", "Producer", p.getId(),
                 "Producer " + p.getProducerNumber() + " deactivated");
         return p;
-    }
-
-    public List<ProducerBankAccount> bankAccountsOf(long producerId) {
-        require(producerId);
-        return bankAccounts.findByProducerIdOrderByIdDesc(producerId);
-    }
-
-    @Transactional
-    public ProducerBankAccount addBankAccount(long producerId, AddBankAccountCommand cmd) {
-        Producer p = require(producerId);
-        String digits = cmd.accountNumber().replaceAll("\\s", "");
-        if (digits.length() < 6) {
-            throw new BusinessRuleException("Bank account number looks invalid");
-        }
-
-        bankAccounts.findByProducerIdAndPrimaryTrueAndStatus(producerId, ProducerBankAccount.Status.ACTIVE)
-                .ifPresent(existing -> {
-                    existing.setPrimary(false);
-                    // push the demote before inserting the new primary — the partial unique
-                    // index (one active primary per producer) is checked per statement
-                    bankAccounts.saveAndFlush(existing);
-                });
-
-        ProducerBankAccount acc = new ProducerBankAccount();
-        acc.setProducerId(producerId);
-        acc.setAccountHolderName(cmd.accountHolderName());
-        acc.setAccountNumberEnc(crypto.encrypt(digits));
-        acc.setAccountNumberLast4(FieldCrypto.lastFour(digits));
-        acc.setAccountNumberHash(crypto.blindIndex(digits));
-        acc.setIfscCode(cmd.ifscCode().toUpperCase());
-        acc.setBankName(cmd.bankName());
-        acc.setBankBranch(cmd.bankBranch());
-        acc.setPrimary(true);
-        acc = bankAccounts.save(acc);
-
-        audit.record("BANK_DETAILS_UPDATED", "Producer", p.getId(),
-                "Bank account ending " + acc.getAccountNumberLast4() + " added for "
-                        + p.getProducerNumber());
-        return acc;
-    }
-
-    @Transactional
-    public ProducerBankAccount updateBankAccount(long producerId, long accountId, UpdateBankAccountCommand cmd) {
-        ProducerBankAccount acc = requireBankAccount(producerId, accountId);
-        acc.setAccountHolderName(cmd.accountHolderName());
-        acc.setIfscCode(cmd.ifscCode().toUpperCase());
-        acc.setBankName(cmd.bankName());
-        acc.setBankBranch(cmd.bankBranch());
-        if (cmd.accountNumber() != null && !cmd.accountNumber().isBlank()) {
-            String digits = cmd.accountNumber().replaceAll("\\s", "");
-            if (digits.length() < 6) {
-                throw new BusinessRuleException("Bank account number looks invalid");
-            }
-            acc.setAccountNumberEnc(crypto.encrypt(digits));
-            acc.setAccountNumberLast4(FieldCrypto.lastFour(digits));
-            acc.setAccountNumberHash(crypto.blindIndex(digits));
-        }
-        audit.record("BANK_DETAILS_UPDATED", "Producer", producerId,
-                "Bank account " + accountId + " (ending " + acc.getAccountNumberLast4() + ") updated");
-        return acc;
-    }
-
-    @Transactional
-    public ProducerBankAccount setPrimaryBankAccount(long producerId, long accountId) {
-        ProducerBankAccount acc = requireBankAccount(producerId, accountId);
-        if (acc.getStatus() != ProducerBankAccount.Status.ACTIVE) {
-            throw new BusinessRuleException("Cannot make an inactive account primary");
-        }
-        if (acc.isPrimary()) {
-            return acc;
-        }
-        bankAccounts.findByProducerIdAndPrimaryTrueAndStatus(producerId, ProducerBankAccount.Status.ACTIVE)
-                .ifPresent(current -> {
-                    current.setPrimary(false);
-                    bankAccounts.saveAndFlush(current);
-                });
-        acc.setPrimary(true);
-        audit.record("BANK_DETAILS_UPDATED", "Producer", producerId,
-                "Bank account " + accountId + " set as primary");
-        return acc;
-    }
-
-    @Transactional
-    public ProducerBankAccount deactivateBankAccount(long producerId, long accountId) {
-        ProducerBankAccount acc = requireBankAccount(producerId, accountId);
-        acc.setStatus(ProducerBankAccount.Status.INACTIVE);
-        acc.setPrimary(false);
-        audit.record("BANK_DETAILS_UPDATED", "Producer", producerId,
-                "Bank account " + accountId + " deactivated");
-        return acc;
-    }
-
-    private ProducerBankAccount requireBankAccount(long producerId, long accountId) {
-        require(producerId);
-        ProducerBankAccount acc = bankAccounts.findById(accountId)
-                .orElseThrow(() -> NotFoundException.of("Bank account", accountId));
-        if (!acc.getProducerId().equals(producerId)) {
-            throw NotFoundException.of("Bank account", accountId);
-        }
-        return acc;
     }
 
     private Producer.PaymentFrequency parseFrequency(String raw, Producer.PaymentFrequency fallback) {
@@ -319,38 +208,13 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
                         p.getMobileNumber(), p.getEmail()));
     }
 
-    // ---- BankAccountResolver ----
-
-    @Override
-    public Optional<Long> primaryActiveAccountId(Long producerId) {
-        return bankAccounts
-                .findByProducerIdAndPrimaryTrueAndStatus(producerId, ProducerBankAccount.Status.ACTIVE)
-                .map(ProducerBankAccount::getId);
-    }
-
-    @Override
-    public Optional<PayoutBankAccount> payoutDetails(Long bankAccountId) {
-        return bankAccounts.findById(bankAccountId)
-                .map(a -> new PayoutBankAccount(a.getId(), a.getAccountHolderName(),
-                        crypto.decrypt(a.getAccountNumberEnc()), a.getIfscCode(), a.getBankName()));
-    }
-
-    @Override
-    public Optional<MaskedBankAccount> maskedDetails(Long bankAccountId) {
-        return bankAccounts.findById(bankAccountId)
-                .map(a -> new MaskedBankAccount(a.getAccountHolderName(),
-                        a.getAccountNumberLast4() == null ? null : "********" + a.getAccountNumberLast4(),
-                        a.getIfscCode(), a.getBankName()));
-    }
-
     // ---- commands ----
 
     public record CreateProducerCommand(
             String producerName, String mobileNumber, String alternateMobile,
             String email, String address, String upiId, String aadhaarNumber,
             Long regionId, java.time.LocalDate joiningDate, String notes,
-            String paymentFrequency,
-            AddBankAccountCommand bank) {
+            String paymentFrequency) {
     }
 
     public record UpdateProducerCommand(
@@ -358,21 +222,5 @@ public class ProducerService implements ProducerDirectory, BankAccountResolver {
             String address, String upiId, String aadhaarNumber,
             Long regionId, String regionChangeReason, String notes,
             String paymentFrequency) {
-    }
-
-    public record UpdateBankAccountCommand(
-            String accountHolderName, String accountNumber, String ifscCode,
-            String bankName, String bankBranch) {
-    }
-
-    public record AddBankAccountCommand(
-            String accountHolderName, String accountNumber, String ifscCode,
-            String bankName, String bankBranch) {
-
-        boolean isComplete() {
-            return accountHolderName != null && !accountHolderName.isBlank()
-                    && accountNumber != null && !accountNumber.isBlank()
-                    && ifscCode != null && !ifscCode.isBlank();
-        }
     }
 }

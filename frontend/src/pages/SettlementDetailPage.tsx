@@ -13,6 +13,7 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import Grid from '@mui/material/Grid2';
+import LinearProgress from '@mui/material/LinearProgress';
 import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import Step from '@mui/material/Step';
@@ -41,10 +42,10 @@ import { batchStatusLabel, lineStatusLabel } from '../lib/paymentLabels';
 import { regionLabel } from '../lib/region';
 import { PageHeader } from '../components/PageHeader';
 import { StatusChip } from '../components/StatusChip';
-import { BankBalanceCard, OwnerApprovalDialog, PreValidationCard } from '../components/PaymentGates';
+import { OwnerApprovalDialog, PreValidationCard } from '../components/PaymentGates';
 import { ConfirmDialog, QueryBoundary, SectionTitle, useToast } from '../components/ui';
 import { useAuth } from '../lib/auth';
-import type { BankBalanceCheck, DailyCollectionRow, Payout, PreValidationReport, Region, SettlementDetail, SettlementItem, StatusHistoryEntry } from '../api/types';
+import type { DailyCollectionRow, Reconciliation, Payout, PreValidationReport, Region, SettlementDetail, SettlementItem, StatusHistoryEntry } from '../api/types';
 
 interface RegionGroup {
   key: string;
@@ -122,6 +123,9 @@ export function SettlementDetailPage() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [detailFor, setDetailFor] = useState<SettlementItem | null>(null);
   const [utrFor, setUtrFor] = useState<Payout | null>(null);
+  const [bulk, setBulk] = useState<{ regionId: number | null; label: string; count: number; amount: number } | null>(null);
+  const [bulkRef, setBulkRef] = useState('');
+  const [bulkDate, setBulkDate] = useState(todayIso());
   const [failFor, setFailFor] = useState<Payout | null>(null);
   const [failReason, setFailReason] = useState('');
   const [utr, setUtr] = useState('');
@@ -130,7 +134,6 @@ export function SettlementDetailPage() {
   const [submitDate, setSubmitDate] = useState(todayIso());
   const [submitRef, setSubmitRef] = useState('');
   const [submitNote, setSubmitNote] = useState('');
-  const [balance, setBalanceCheck] = useState<BankBalanceCheck | null>(null);
   const [preVal, setPreVal] = useState<PreValidationReport | null>(null);
   const [approveOpen, setApproveOpen] = useState(false);
 
@@ -181,6 +184,30 @@ export function SettlementDetailPage() {
     queryKey: ['settlement', id, 'history'],
     queryFn: async () => (await api.get<StatusHistoryEntry[]>(`/settlements/${id}/history`)).data,
     enabled: !!detail.data,
+  });
+
+  const postApproval = ['APPROVED', 'PAYOUT_INITIATED', 'PARTIALLY_PAID', 'PAID', 'FAILED'].includes(detail.data?.status ?? '');
+  const recon = useQuery({
+    queryKey: ['settlement', id, 'reconciliation'],
+    queryFn: async () => (await api.get<Reconciliation>(`/settlements/${id}/reconciliation`)).data,
+    enabled: postApproval,
+  });
+
+  const confirmMany = useMutation({
+    mutationFn: async (b: { regionId: number | null; bankReference: string; paidOn: string }) =>
+      (
+        await api.post(`/settlements/${id}/payouts/confirm`, {
+          regionId: b.regionId ?? undefined,
+          bankReference: b.bankReference,
+          paidOn: b.paidOn,
+        })
+      ).data,
+    onSuccess: (d: unknown[]) => {
+      toast.success(`${d.length} payment${d.length === 1 ? '' : 's'} confirmed`);
+      setBulk(null);
+      invalidate();
+    },
+    onError: toast.fromError,
   });
 
   const invalidate = () => {
@@ -262,15 +289,13 @@ export function SettlementDetailPage() {
       {(s) => {
         const busy = lifecycle.isPending || initiatePayouts.isPending || verifyItem.isPending || verifyRegion.isPending || generateBills.isPending;
         const legacyAll = s.paymentFrequency === 'ALL';
-        const balanceOk =
-          !!balance?.sufficient && Number(balance.requiredAmount) === Number(s.totalNetPayable);
         const preValReady = preVal?.result === 'READY_FOR_APPROVAL';
         const terminal = s.status === 'CANCELLED' || s.status === 'FAILED';
         const preApproval = ['CALCULATED', 'REVIEWED', 'UNDER_VERIFICATION', 'VERIFIED'].includes(s.status);
         const canApprove = s.status === 'VERIFIED' || (legacyAll && s.status === 'REVIEWED');
         const showGates = ['VERIFIED', 'APPROVED', 'PAYOUT_INITIATED', 'PARTIALLY_PAID', 'PAID', 'FAILED'].includes(s.status)
           || (legacyAll && s.status === 'REVIEWED');
-        const gatesPass = legacyAll && s.status === 'REVIEWED' ? true : balanceOk && preValReady;
+        const gatesPass = legacyAll && s.status === 'REVIEWED' ? true : preValReady;
         const canBill = ['VERIFIED', 'APPROVED', 'PAYOUT_INITIATED', 'PARTIALLY_PAID', 'PAID'].includes(s.status);
         const allBilled = s.totalProducers > 0 && s.billsGenerated >= s.totalProducers;
         const active = wizardStep(s.status, allBilled);
@@ -678,14 +703,115 @@ export function SettlementDetailPage() {
 
             {showGates && (
               <>
-                <SectionTitle>Bank balance &amp; pre-validation</SectionTitle>
-                <BankBalanceCard
-                  base={`/settlements/${id}`}
-                  requiredAmount={s.totalNetPayable}
-                  canVerify={can('VERIFY_PAYMENT') || can('APPROVE_SETTLEMENT') || can('PROCESS_PAYMENT')}
-                  onChange={setBalanceCheck}
-                />
+                <SectionTitle>Pre-validation</SectionTitle>
                 <PreValidationCard base={`/settlements/${id}`} onResult={setPreVal} />
+              </>
+            )}
+
+            {postApproval && recon.data && (
+              <>
+                <SectionTitle>Payment status — settlement vs payments</SectionTitle>
+                <Card sx={{ mb: 3 }}>
+                  <CardContent>
+                    <Grid container spacing={2} sx={{ mb: 1.5 }}>
+                      {[
+                        ['Settlement total', money(recon.data.batchTotal)],
+                        ['Confirmed paid', money(recon.data.paidTotal)],
+                        ['Waiting for bank', money(recon.data.pendingTotal)],
+                        ['Failed', money(recon.data.failedTotal)],
+                      ].map(([k, v]) => (
+                        <Grid size={{ xs: 6, md: 3 }} key={k}>
+                          <Typography variant="caption" color="text.secondary" display="block">{k}</Typography>
+                          <Typography sx={{ fontWeight: 700, fontSize: 18 }}>{v}</Typography>
+                        </Grid>
+                      ))}
+                    </Grid>
+                    <LinearProgress
+                      variant="determinate"
+                      value={recon.data.linesTotal > 0 ? Math.min(100, (recon.data.paidTotal / recon.data.linesTotal) * 100) : 0}
+                      sx={{ height: 8, borderRadius: 4, mb: 1 }}
+                    />
+                    <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
+                      <StatusChip
+                        status={recon.data.complete ? 'VERIFIED' : 'PENDING'}
+                        label={
+                          recon.data.complete
+                            ? 'Settlement matches overall payment'
+                            : `${money(recon.data.difference)} still to be confirmed`
+                        }
+                      />
+                      <Typography variant="caption" color="text.secondary">
+                        {recon.data.paidCount} of {recon.data.producers} producers paid
+                        {recon.data.linesMatchBatch ? ' · producer lines add up to the settlement total' : ' · producer lines do NOT add up to the settlement total'}
+                      </Typography>
+                      <Box sx={{ flex: 1 }} />
+                      {recon.data.pendingCount > 0 && (can('APPROVE_SETTLEMENT') || can('CONFIRM_PAYMENT')) && payouts.data && payouts.data.length > 0 && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => {
+                            setBulkRef('');
+                            setBulkDate(todayIso());
+                            setBulk({ regionId: null, label: 'the whole batch', count: recon.data!.pendingCount, amount: recon.data!.pendingTotal });
+                          }}
+                        >
+                          Confirm all payments ({recon.data.pendingCount})
+                        </Button>
+                      )}
+                    </Stack>
+                  </CardContent>
+                  <TableContainer>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Region / area</TableCell>
+                          <TableCell align="right">Producers paid</TableCell>
+                          <TableCell align="right">Settlement</TableCell>
+                          <TableCell align="right">Paid</TableCell>
+                          <TableCell align="right">Waiting</TableCell>
+                          <TableCell>Status</TableCell>
+                          <TableCell />
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {recon.data.regions.map((r) => {
+                          const label = r.regionId == null ? 'No region assigned' : regionLabel(regions.data?.find((x) => x.id === r.regionId));
+                          return (
+                            <TableRow key={String(r.regionId ?? 'none')}>
+                              <TableCell sx={{ fontWeight: 600 }}>{label}</TableCell>
+                              <TableCell align="right">
+                                {r.paidCount}/{r.producers}
+                              </TableCell>
+                              <TableCell align="right">{money(r.expected)}</TableCell>
+                              <TableCell align="right">{money(r.paid)}</TableCell>
+                              <TableCell align="right">{money(r.pending + r.failed)}</TableCell>
+                              <TableCell>
+                                <StatusChip
+                                  status={r.status === 'COMPLETED' ? 'PAID' : r.status === 'PARTIALLY_CONFIRMED' ? 'PARTIALLY_PAID' : r.status === 'FAILED' ? 'FAILED' : 'PENDING'}
+                                  label={r.status === 'COMPLETED' ? 'Completed' : r.status === 'PARTIALLY_CONFIRMED' ? 'Partially confirmed' : r.status === 'FAILED' ? 'Failed' : 'Not confirmed'}
+                                />
+                              </TableCell>
+                              <TableCell align="right">
+                                {r.pendingCount > 0 && (can('APPROVE_SETTLEMENT') || can('CONFIRM_PAYMENT')) && payouts.data && payouts.data.length > 0 && (
+                                  <Button
+                                    size="small"
+                                    onClick={() => {
+                                      setBulkRef('');
+                                      setBulkDate(todayIso());
+                                      setBulk({ regionId: r.regionId ?? 0, label: label, count: r.pendingCount, amount: r.pending });
+                                    }}
+                                  >
+                                    Confirm this region
+                                  </Button>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Card>
               </>
             )}
 
@@ -848,8 +974,6 @@ export function SettlementDetailPage() {
                 ['Recipients', String(s.totalProducers)],
                 ['Total litres', litres(s.totalLitres)],
                 ['Total amount', money(s.totalNetPayable)],
-                ['Bank balance', balance ? money(balance.availableBalance) : '—'],
-                ['Remaining after', balance ? money(balance.remainingAfter) : '—'],
                 ['Validation', preVal?.result.replace(/_/g, ' ') ?? '—'],
               ]}
               onConfirm={() => approveMut.mutate()}
@@ -866,6 +990,41 @@ export function SettlementDetailPage() {
               onConfirm={() => run('cancel', 'Cancelled')}
               onClose={() => setConfirmCancel(false)}
             />
+
+            <Dialog open={!!bulk} onClose={() => setBulk(null)} fullWidth maxWidth="xs">
+              <DialogTitle>Confirm payments</DialogTitle>
+              <DialogContent>
+                <Typography variant="body2" sx={{ mb: 2, mt: 0.5 }}>
+                  Mark <b>{bulk?.count}</b> payment{bulk?.count === 1 ? '' : 's'} totalling <b>{bulk ? money(bulk.amount) : ''}</b> as
+                  paid for <b>{bulk?.label}</b>. Do this only after the bank has paid them.
+                </Typography>
+                <Stack spacing={2}>
+                  <TextField
+                    label="Bank reference (applies to all of these)"
+                    value={bulkRef}
+                    onChange={(e) => setBulkRef(e.target.value)}
+                    autoFocus
+                  />
+                  <TextField
+                    label="Payment date"
+                    type="date"
+                    value={bulkDate}
+                    onChange={(e) => setBulkDate(e.target.value)}
+                    slotProps={{ inputLabel: { shrink: true } }}
+                  />
+                </Stack>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setBulk(null)}>Cancel</Button>
+                <Button
+                  variant="contained"
+                  disabled={!bulkRef.trim() || !bulkDate || confirmMany.isPending}
+                  onClick={() => bulk && confirmMany.mutate({ regionId: bulk.regionId, bankReference: bulkRef.trim(), paidOn: bulkDate })}
+                >
+                  {confirmMany.isPending ? 'Confirming…' : 'Confirm payments'}
+                </Button>
+              </DialogActions>
+            </Dialog>
 
             <Dialog open={!!failFor} onClose={() => setFailFor(null)} fullWidth maxWidth="xs">
               <DialogTitle>Mark payment as failed</DialogTitle>

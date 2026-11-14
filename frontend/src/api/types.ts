@@ -32,17 +32,6 @@ export interface Producer {
   qrCode: string;
 }
 
-export interface BankAccount {
-  id: number;
-  accountHolderName: string;
-  accountNumberMasked: string;
-  ifscCode: string;
-  bankName?: string;
-  bankBranch?: string;
-  primary: boolean;
-  status: string;
-}
-
 export interface Breakdown {
   tsValue: number;
   rateScope: string;
@@ -178,6 +167,34 @@ export interface BankSubmission {
   createdAt: string;
 }
 
+/** Settlement vs payments: what the batch expects, what is confirmed paid, and the same by region. */
+export interface Reconciliation {
+  batchTotal: number;
+  linesTotal: number;
+  paidTotal: number;
+  pendingTotal: number;
+  failedTotal: number;
+  producers: number;
+  paidCount: number;
+  pendingCount: number;
+  failedCount: number;
+  linesMatchBatch: boolean;
+  complete: boolean;
+  difference: number;
+  regions: {
+    regionId?: number | null;
+    producers: number;
+    paidCount: number;
+    pendingCount: number;
+    failedCount: number;
+    expected: number;
+    paid: number;
+    pending: number;
+    failed: number;
+    status: string;
+  }[];
+}
+
 export interface StatusHistoryEntry {
   id: number;
   subjectType: 'SETTLEMENT' | 'ITEM';
@@ -217,25 +234,8 @@ export interface Driver {
   perDayRate?: number;
   status: string;
   note?: string;
-  accountHolderName?: string;
-  accountNumberMasked?: string;
-  ifscCode?: string;
-  bankName?: string;
-  branchName?: string;
-  bankComplete: boolean;
-  bankUpdatedAt?: string;
   /** Regions (areas) the driver collects from. */
   routeRegionIds?: number[];
-}
-
-export interface DriverBankDetails {
-  accountHolderName: string;
-  accountNumber: string;
-  ifscCode: string;
-  bankName: string;
-  branchName?: string;
-  bankUpdatedAt?: string;
-  bankUpdatedBy?: number;
 }
 
 export interface SalaryItem {
@@ -513,19 +513,6 @@ export interface CenterSettings {
   snfMax: number;
 }
 
-export interface CenterBankAccount {
-  id: number;
-  accountHolderName: string;
-  accountNumberMasked: string;
-  ifsc: string;
-  bankName: string;
-  label?: string;
-  status: 'ACTIVE' | 'INACTIVE';
-  verified: boolean;
-  primary: boolean;
-  verifiedAt?: string;
-}
-
 export type IncentiveTarget = 'PRODUCER' | 'MEDIATOR';
 export type IncentiveType =
   | 'PER_LITRE'
@@ -556,20 +543,6 @@ export interface Incentive {
   createdByName?: string;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface BankBalanceCheck {
-  id: number;
-  centerBankAccountId?: number;
-  bankAccountLabel: string;
-  availableBalance: number;
-  requiredAmount: number;
-  remainingAfter: number;
-  sufficient: boolean;
-  method: 'MANUAL' | 'AUTOMATIC';
-  note?: string;
-  verifiedBy?: number;
-  verifiedAt: string;
 }
 
 export interface PreValidationCheck {

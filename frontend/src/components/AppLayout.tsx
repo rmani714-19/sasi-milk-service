@@ -46,6 +46,7 @@ import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
 import SummarizeOutlinedIcon from '@mui/icons-material/SummarizeOutlined';
 import MyLocationOutlinedIcon from '@mui/icons-material/MyLocationOutlined';
 import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
+import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import { useAuth } from '../lib/auth';
 import { useAppTheme } from '../lib/appTheme';
 import { usePendingSync } from '../lib/usePendingSync';
@@ -61,6 +62,8 @@ interface NavItem {
   icon: JSX.Element;
   perm?: string;
   section?: string;
+  /** Shown indented under the item above it. */
+  child?: boolean;
 }
 
 const NAV: NavItem[] = [
@@ -76,7 +79,9 @@ const NAV: NavItem[] = [
 
   { section: 'Payments', to: '/payments/dashboard', label: 'Payment Dashboard', icon: <DashboardOutlinedIcon />, perm: 'VIEW_PAYMENTS' },
   { section: 'Payments', to: '/payments/weekly', label: 'Weekly Farmer Payments', icon: <PaymentsOutlinedIcon />, perm: 'GENERATE_SETTLEMENT' },
+  { section: 'Payments', to: '/payments/weekly/verify', label: 'Weekly Verification', icon: <FactCheckOutlinedIcon />, perm: 'VIEW_PAYMENTS', child: true },
   { section: 'Payments', to: '/payments/monthly', label: 'Monthly Farmer Payments', icon: <PaymentsOutlinedIcon />, perm: 'GENERATE_SETTLEMENT' },
+  { section: 'Payments', to: '/payments/monthly/verify', label: 'Monthly Verification', icon: <FactCheckOutlinedIcon />, perm: 'VIEW_PAYMENTS', child: true },
   { section: 'Payments', to: '/payments/drivers', label: 'Driver Salary', icon: <BadgeOutlinedIcon />, perm: 'VIEW_PAYMENTS' },
   { section: 'Payments', to: '/payments/history', label: 'Payment Activity', icon: <HistoryOutlinedIcon />, perm: 'VIEW_PAYMENTS' },
   { section: 'Payments', to: '/payments/reports', label: 'Payment Reports', icon: <SummarizeOutlinedIcon />, perm: 'VIEW_REPORTS' },
@@ -91,8 +96,12 @@ const NAV: NavItem[] = [
   { section: 'Insights', to: '/notifications', label: 'Notifications', icon: <NotificationsNoneOutlinedIcon />, perm: 'ALL' },
 ];
 
-const isActive = (to: string, pathname: string) =>
+const matches = (to: string, pathname: string) =>
   to === '/' ? pathname === '/' : pathname === to || pathname.startsWith(`${to}/`);
+
+/** The most specific menu entry wins, so "/payments/weekly/verify" does not also light up "/payments/weekly". */
+const activeTo = (items: NavItem[], pathname: string) =>
+  items.filter((n) => matches(n.to, pathname)).sort((a, b) => b.to.length - a.to.length)[0]?.to;
 
 function readCollapsed(): boolean | null {
   try {
@@ -136,7 +145,7 @@ export function AppLayout() {
   const items = useMemo(() => NAV.filter((n) => !n.perm || can(n.perm)), [can]);
   const railWidth = collapsed ? NAV_MINI : NAV_FULL;
   const currentLabel =
-    items.find((n) => isActive(n.to, pathname))?.label ??
+    items.find((n) => n.to === activeTo(items, pathname))?.label ??
     (pathname.startsWith('/settlements') ? 'Farmer Payment' : '');
 
   const initials = (user?.fullName ?? '?')
@@ -195,7 +204,7 @@ export function AppLayout() {
 
       <List sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', px: mini ? 0.75 : 1.25, py: 1.5 }}>
         {items.map((n, i) => {
-          const active = isActive(n.to, pathname);
+          const active = n.to === activeTo(items, pathname);
           const showSection = !mini && n.section && n.section !== items[i - 1]?.section;
           return (
             <Box key={n.to}>
@@ -214,9 +223,10 @@ export function AppLayout() {
                 disableRipple
                 sx={{
                   borderRadius: '10px',
-                  minHeight: 44,
+                  minHeight: n.child && !mini ? 38 : 44,
                   mb: 0.5,
                   px: mini ? 0 : 1.5,
+                  pl: mini ? 0 : n.child ? 4.5 : 1.5,
                   justifyContent: mini ? 'center' : 'flex-start',
                   color: active ? nav.navActiveFg : 'text.secondary',
                   bgcolor: active ? nav.navActiveBg : 'transparent',
@@ -230,7 +240,7 @@ export function AppLayout() {
                     mr: mini ? 0 : 1.75,
                     justifyContent: 'center',
                     color: 'inherit',
-                    '& svg': { fontSize: 22 },
+                    '& svg': { fontSize: n.child ? 18 : 22 },
                   }}
                 >
                   {n.icon}
@@ -238,7 +248,7 @@ export function AppLayout() {
                 {!mini && (
                   <ListItemText
                     primary={n.label}
-                    primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 'inherit' }}
+                    primaryTypographyProps={{ fontSize: n.child ? '0.8125rem' : '0.875rem', fontWeight: 'inherit' }}
                   />
                 )}
               </ListItemButton>

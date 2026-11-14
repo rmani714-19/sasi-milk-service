@@ -34,7 +34,6 @@ public class GlobalExceptionHandler {
             "ex_settlement_no_overlap", "A settlement already covers an overlapping period",
             "milk_collections_client_transaction_id_key", "This collection was already submitted",
             "producers_producer_number_key", "Producer number already exists",
-            "ux_producer_primary_bank", "Producer already has an active primary bank account",
             "payouts_settlement_item_id_key", "A payout already exists for this settlement item",
             "payouts_idempotency_key_key", "Duplicate payout request");
 
@@ -84,6 +83,17 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AuthenticationException.class)
     ProblemDetail handleAuth(AuthenticationException ex) {
         return problem(HttpStatus.UNAUTHORIZED, "unauthorized", ex.getMessage());
+    }
+
+    /** A URL that does not exist is a 404, not a server error. */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    ProblemDetail handleNotFound(Exception ex) {
+        return problem(HttpStatus.NOT_FOUND, "not_found", "No such endpoint");
+    }
+
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    ProblemDetail handleMethod(Exception ex) {
+        return problem(HttpStatus.METHOD_NOT_ALLOWED, "method_not_allowed", "That method is not supported here");
     }
 
     @ExceptionHandler(Exception.class)

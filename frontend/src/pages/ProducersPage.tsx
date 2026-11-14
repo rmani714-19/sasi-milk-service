@@ -194,11 +194,6 @@ const BLANK = {
   aadhaarNumber: '',
   regionId: '',
   paymentFrequency: 'WEEKLY',
-  accountHolderName: '',
-  accountNumber: '',
-  bankName: '',
-  bankBranch: '',
-  ifscCode: '',
 };
 
 function ProducerDialog({
@@ -240,10 +235,6 @@ function ProducerDialog({
     email: V.email(f.email),
     upiId: V.upiId(f.upiId),
     aadhaarNumber: V.aadhaar(f.aadhaarNumber),
-    accountHolderName: V.required('Account holder name')(f.accountHolderName),
-    accountNumber: V.accountNumber(f.accountNumber),
-    ifscCode: V.ifsc(f.ifscCode),
-    bankName: V.required('Bank name')(f.bankName),
   };
   const showErr = (k: string) => ((touched[k] || tried) && errors[k]) || '';
   const valid = V.allValid(errors);
@@ -261,13 +252,6 @@ function ProducerDialog({
       aadhaarNumber: f.aadhaarNumber ? V.onlyDigits(f.aadhaarNumber) : undefined,
       regionId: f.regionId ? Number(f.regionId) : undefined,
       paymentFrequency: f.paymentFrequency,
-      bank: {
-        accountHolderName: f.accountHolderName.trim(),
-        accountNumber: f.accountNumber.trim(),
-        bankName: f.bankName.trim(),
-        bankBranch: und(f.bankBranch),
-        ifscCode: f.ifscCode.trim().toUpperCase(),
-      },
     });
   };
 
@@ -361,51 +345,6 @@ function ProducerDialog({
             </Stack>
           </FormSection>
 
-          <FormSection title="Bank details (required)">
-            <TextField
-              label="Account holder name"
-              value={f.accountHolderName}
-              onChange={set('accountHolderName')}
-              onBlur={blur('accountHolderName')}
-              error={!!showErr('accountHolderName')}
-              helperText={showErr('accountHolderName')}
-              required
-            />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                label="Account number"
-                value={f.accountNumber}
-                onChange={set('accountNumber', (v) => V.onlyDigits(v).slice(0, 18))}
-                onBlur={blur('accountNumber')}
-                error={!!showErr('accountNumber')}
-                helperText={showErr('accountNumber') || 'Digits only, 9–18 long'}
-                inputProps={{ inputMode: 'numeric', maxLength: 18 }}
-                required
-              />
-              <TextField
-                label="IFSC code"
-                value={f.ifscCode}
-                onChange={set('ifscCode', (v) => V.upper(v).replace(/[^A-Z0-9]/g, '').slice(0, 11))}
-                onBlur={blur('ifscCode')}
-                error={!!showErr('ifscCode')}
-                helperText={showErr('ifscCode')}
-                inputProps={{ maxLength: 11 }}
-                required
-              />
-            </Stack>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                label="Bank name"
-                value={f.bankName}
-                onChange={set('bankName')}
-                onBlur={blur('bankName')}
-                error={!!showErr('bankName')}
-                helperText={showErr('bankName')}
-                required
-              />
-              <TextField label="Branch (optional)" value={f.bankBranch} onChange={set('bankBranch')} />
-            </Stack>
-          </FormSection>
           {tried && !valid && (
             <Typography variant="caption" color="error">
               Please fix the highlighted fields.

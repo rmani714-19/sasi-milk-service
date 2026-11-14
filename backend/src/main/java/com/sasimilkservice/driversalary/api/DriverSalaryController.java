@@ -8,11 +8,7 @@ import com.sasimilkservice.driversalary.domain.DriverSalaryItem.PaymentMethod;
 import com.sasimilkservice.driversalary.service.DriverSalaryService;
 import com.sasimilkservice.driversalary.service.DriverSalaryService.ItemComponents;
 import com.sasimilkservice.paymentops.api.PaymentOpsDtos.ApproveRequest;
-import com.sasimilkservice.paymentops.api.PaymentOpsDtos.BankBalanceCheckResponse;
-import com.sasimilkservice.paymentops.api.PaymentOpsDtos.BankBalanceRequest;
 import com.sasimilkservice.paymentops.api.PaymentOpsDtos.PreValidationResponse;
-import com.sasimilkservice.paymentops.domain.BankBalanceCheck.SubjectType;
-import com.sasimilkservice.paymentops.service.PaymentOpsService;
 import com.sasimilkservice.report.export.ReportExporter;
 import com.sasimilkservice.report.export.TabularReport;
 import jakarta.validation.Valid;
@@ -47,16 +43,14 @@ public class DriverSalaryController {
     private final DriverSalaryService service;
     private final DriverRepository drivers;
     private final ReportExporter exporter;
-    private final PaymentOpsService paymentOps;
     private final com.sasimilkservice.driversalary.statement.SalaryStatementService statements;
 
     public DriverSalaryController(DriverSalaryService service, DriverRepository drivers,
-                                  ReportExporter exporter, PaymentOpsService paymentOps,
+                                  ReportExporter exporter,
                                   com.sasimilkservice.driversalary.statement.SalaryStatementService statements) {
         this.service = service;
         this.drivers = drivers;
         this.exporter = exporter;
-        this.paymentOps = paymentOps;
         this.statements = statements;
     }
 
@@ -167,24 +161,6 @@ public class DriverSalaryController {
     public BatchDetail review(@PathVariable long id) {
         service.review(id);
         return BatchDetail.from(service.require(id), service.items(id));
-    }
-
-    @GetMapping("/{id}/bank-balance")
-    @PreAuthorize("hasAnyAuthority('VIEW_PAYMENTS','GENERATE_SETTLEMENT','APPROVE_SETTLEMENT','PROCESS_PAYMENT')")
-    public BankBalanceCheckResponse bankBalance(@PathVariable long id) {
-        return paymentOps.latest(SubjectType.SALARY_BATCH, id)
-                .map(BankBalanceCheckResponse::from)
-                .orElse(null);
-    }
-
-    @PostMapping("/{id}/bank-balance")
-    @PreAuthorize("hasAnyAuthority('GENERATE_SETTLEMENT','APPROVE_SETTLEMENT','PROCESS_PAYMENT')")
-    public BankBalanceCheckResponse verifyBankBalance(@PathVariable long id,
-                                                     @Valid @RequestBody BankBalanceRequest r) {
-        DriverSalaryBatch b = service.require(id);
-        return BankBalanceCheckResponse.from(paymentOps.record(SubjectType.SALARY_BATCH, id,
-                r.centerBankAccountId(), r.bankAccountLabel(), r.availableBalance(),
-                b.getTotalNet(), r.method(), r.note()));
     }
 
     @GetMapping("/{id}/pre-validation")

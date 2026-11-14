@@ -38,9 +38,6 @@ public class Payout extends AuditableEntity {
     @Column(name = "producer_id", nullable = false)
     private Long producerId;
 
-    @Column(name = "bank_account_id", nullable = false)
-    private Long bankAccountId;
-
     @Column(nullable = false)
     private BigDecimal amount;
 

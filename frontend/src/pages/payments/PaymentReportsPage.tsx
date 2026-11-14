@@ -25,7 +25,7 @@ import type { Producer, SalaryBatchSummary, SettlementSummary } from '../../api/
 const monthAgo = () => `${new Date().getFullYear()}-01-01`;
 const today = () => new Date().toISOString().slice(0, 10);
 
-function ExportButtons({ base, name }: { base: string; name: string }) {
+export function ExportButtons({ base, name }: { base: string; name: string }) {
   const toast = useToast();
   const sep = base.includes('?') ? '&' : '?';
   const go = (fmt: string, ext: string) => downloadFile(`${base}${sep}format=${fmt}`, `${name}.${ext}`).catch(toast.fromError);

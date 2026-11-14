@@ -10,8 +10,6 @@ import com.sasimilkservice.payout.domain.Payout;
 import com.sasimilkservice.payout.domain.PayoutTransaction;
 import com.sasimilkservice.payout.repository.PayoutRepository;
 import com.sasimilkservice.payout.repository.PayoutTransactionRepository;
-import com.sasimilkservice.producer.spi.BankAccountResolver;
-import com.sasimilkservice.producer.spi.BankAccountResolver.PayoutBankAccount;
 import com.sasimilkservice.settlement.spi.SettlementPayoutGateway;
 import com.sasimilkservice.settlement.spi.SettlementPayoutGateway.ApprovedSettlement;
 import com.sasimilkservice.settlement.spi.SettlementPayoutGateway.ItemPaymentStatus;
@@ -39,20 +37,17 @@ public class PayoutService {
     private final PayoutRepository payouts;
     private final PayoutTransactionRepository payoutTxns;
     private final SettlementPayoutGateway settlements;
-    private final BankAccountResolver bankAccounts;
     private final NotificationPublisher notifications;
     private final AuditRecorder audit;
 
     public PayoutService(PayoutRepository payouts,
                          PayoutTransactionRepository payoutTxns,
                          SettlementPayoutGateway settlements,
-                         BankAccountResolver bankAccounts,
                          NotificationPublisher notifications,
                          AuditRecorder audit) {
         this.payouts = payouts;
         this.payoutTxns = payoutTxns;
         this.settlements = settlements;
-        this.bankAccounts = bankAccounts;
         this.notifications = notifications;
         this.audit = audit;
     }
@@ -111,21 +106,6 @@ public class PayoutService {
     private static final String MANUAL = "MANUAL";
 
     private Payout createPayout(long settlementId, String settlementNumber, PayableItem item) {
-        // resolve the bank account fresh (the settlement snapshot may predate it)
-        Long bankAccountId = item.bankAccountId() != null
-                ? item.bankAccountId()
-                : bankAccounts.primaryActiveAccountId(item.producerId()).orElse(null);
-        Optional<PayoutBankAccount> bank = bankAccountId == null
-                ? Optional.empty()
-                : bankAccounts.payoutDetails(bankAccountId);
-        if (bank.isEmpty()) {
-            // cannot pay a producer with no bank account — hold the line for an operator
-            settlements.updateItemPaymentStatus(item.settlementItemId(), ItemPaymentStatus.ON_HOLD, null);
-            audit.record("PAYOUT_CREATED", "SettlementItem", item.settlementItemId(),
-                    "Payout on hold for producer %d: no active bank account".formatted(item.producerId()));
-            return null;
-        }
-
         Payout p = new Payout();
         p.setSettlementId(settlementId);
         p.setSettlementItemId(item.settlementItemId());
@@ -134,13 +114,11 @@ public class PayoutService {
         p.setIdempotencyKey("po-" + item.settlementItemId());
         p.setProvider(MANUAL);
 
-        PayoutBankAccount b = bank.get();
-        p.setBankAccountId(b.bankAccountId());
         p.setStatus(Payout.Status.PROCESSING); // listed for the bank; waiting for the owner's confirmation
         p.setAttemptCount(1);
         p.setLastAttemptAt(Instant.now());
         p = payouts.save(p);
-        logTxn(p.getId(), PayoutTransaction.EventType.REQUEST, "PROCESSING", null, requestPayload(p, b));
+        logTxn(p.getId(), PayoutTransaction.EventType.REQUEST, "PROCESSING", null, requestPayload(p));
 
         settlements.updateItemPaymentStatus(item.settlementItemId(),
                 toItemStatus(p.getStatus()), null);
@@ -156,19 +134,13 @@ public class PayoutService {
         if (p.getStatus() != Payout.Status.FAILED) {
             throw new BusinessRuleException("Only a FAILED payout can be retried");
         }
-        Optional<PayoutBankAccount> bank = bankAccounts.payoutDetails(p.getBankAccountId());
-        if (bank.isEmpty()) {
-            throw new BusinessRuleException("Producer still has no active bank account");
-        }
-        PayoutBankAccount b = bank.get();
-
         // Put the line back on the bank list; the owner pays again outside the app and confirms.
         p.setAttemptCount(p.getAttemptCount() + 1);
         p.setLastAttemptAt(Instant.now());
         p.setFailureCode(null);
         p.setFailureReason(null);
         p.setStatus(Payout.Status.PROCESSING);
-        logTxn(p.getId(), PayoutTransaction.EventType.RETRY, "PROCESSING", null, requestPayload(p, b));
+        logTxn(p.getId(), PayoutTransaction.EventType.RETRY, "PROCESSING", null, requestPayload(p));
 
         settlements.updateItemPaymentStatus(p.getSettlementItemId(), toItemStatus(p.getStatus()), null);
         settlements.refreshSettlementPaymentStatus(p.getSettlementId());
@@ -194,6 +166,39 @@ public class PayoutService {
             p.setSettledAt(paidOn.atTime(12, 0).atZone(java.time.ZoneId.of("Asia/Kolkata")).toInstant());
         }
         return p;
+    }
+
+    /**
+     * Confirm several payments at once after the bank has paid them: one region/area, the producers with no
+     * region, or the whole batch. {@code regionId}: null = every region, 0 = producers with no region.
+     * All confirmed lines carry the same bank reference (for example the bank's batch / file reference).
+     */
+    @Transactional
+    public List<Payout> confirmMany(long settlementId, Long regionId, String utr, java.time.LocalDate paidOn) {
+        if (utr == null || utr.isBlank()) {
+            throw new BusinessRuleException("Enter the bank reference for these payments");
+        }
+        ApprovedSettlement st = settlements.requireApprovedForPayout(settlementId);
+        java.util.Set<Long> itemIds = st.items().stream()
+                .filter(i -> regionId == null || (regionId == 0 ? i.regionId() == null : regionId.equals(i.regionId())))
+                .map(PayableItem::settlementItemId)
+                .collect(java.util.stream.Collectors.toSet());
+        List<Payout> targets = payouts.findBySettlementIdOrderByProducerIdAsc(settlementId).stream()
+                .filter(p -> itemIds.contains(p.getSettlementItemId()))
+                .filter(p -> p.getStatus() == Payout.Status.INITIATED || p.getStatus() == Payout.Status.PROCESSING
+                        || p.getStatus() == Payout.Status.PENDING)
+                .toList();
+        if (targets.isEmpty()) {
+            throw new BusinessRuleException("There are no payments waiting for confirmation here");
+        }
+        List<Payout> done = new java.util.ArrayList<>();
+        for (Payout p : targets) {
+            done.add(markPaid(p.getId(), utr.trim(), paidOn));
+        }
+        audit.record("PAYOUTS_CONFIRMED", "Settlement", settlementId,
+                "%d payment(s) confirmed%s with bank reference %s".formatted(done.size(),
+                        regionId == null ? "" : regionId == 0 ? " (no region)" : " for region " + regionId, utr.trim()));
+        return done;
     }
 
     @Transactional
@@ -260,12 +265,9 @@ public class PayoutService {
         payoutTxns.save(t);
     }
 
-    private static Map<String, Object> requestPayload(Payout p, PayoutBankAccount b) {
+    private static Map<String, Object> requestPayload(Payout p) {
         Map<String, Object> m = new HashMap<>();
         m.put("amount", p.getAmount());
-        m.put("ifsc", b.ifsc());
-        m.put("accountLast4", b.accountNumber() == null ? null
-                : b.accountNumber().substring(Math.max(0, b.accountNumber().length() - 4)));
         return m;
     }
 

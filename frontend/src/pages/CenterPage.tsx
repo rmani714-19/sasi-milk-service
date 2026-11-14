@@ -12,7 +12,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { PageHeader } from '../components/PageHeader';
 import { FormSection } from '../components/FormSection';
-import { CenterBankAccounts } from '../components/CenterBankAccounts';
 import { QueryBoundary, useToast } from '../components/ui';
 import type { CenterSettings } from '../api/types';
 
@@ -44,7 +43,7 @@ export function CenterPage() {
 
   return (
     <>
-      <PageHeader title="My Center" subtitle="Centre profile, settlement rules and business bank accounts" />
+      <PageHeader title="My Center" subtitle="Centre profile and settlement rules" />
       <QueryBoundary query={q}>
         {() =>
           form && (
@@ -131,7 +130,6 @@ export function CenterPage() {
                 </CardContent>
               </Card>
 
-              <CenterBankAccounts />
             </Stack>
           )
         }

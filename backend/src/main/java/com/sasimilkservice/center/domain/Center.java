@@ -12,8 +12,7 @@ import java.math.BigDecimal;
 /**
  * Single-row center configuration. Holds the business rules that the client may
  * change without a code release (rounding, incentive cap/stacking, FAT/SNF
- * bounds, missing-rate policy). The centre's own bank accounts live in
- * {@code center_bank_accounts} ({@link CenterBankAccount}).
+ * bounds, missing-rate policy).
  */
 @Entity
 @Table(name = "center")

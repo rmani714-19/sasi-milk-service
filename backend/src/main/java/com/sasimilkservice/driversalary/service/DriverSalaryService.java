@@ -20,8 +20,6 @@ import com.sasimilkservice.driversalary.repository.DriverSalaryBankSubmissionRep
 import com.sasimilkservice.driversalary.repository.DriverSalaryBatchRepository;
 import com.sasimilkservice.driversalary.repository.DriverSalaryItemRepository;
 import com.sasimilkservice.expense.spi.VehicleExpenseQuery;
-import com.sasimilkservice.paymentops.domain.BankBalanceCheck;
-import com.sasimilkservice.paymentops.service.PaymentOpsService;
 import com.sasimilkservice.paymentops.service.PreValidation;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,7 +44,6 @@ public class DriverSalaryService {
     private final DriverSalaryBatchRepository batches;
     private final DriverSalaryItemRepository items;
     private final DriverRepository drivers;
-    private final PaymentOpsService paymentOps;
     private final AuditRecorder audit;
     private final DriverAdvanceRepository advances;
     private final RouteCollectionQuery routeCollections;
@@ -54,14 +51,13 @@ public class DriverSalaryService {
     private final DriverSalaryBankSubmissionRepository submissions;
 
     public DriverSalaryService(DriverSalaryBatchRepository batches, DriverSalaryItemRepository items,
-                               DriverRepository drivers, PaymentOpsService paymentOps, AuditRecorder audit,
+                               DriverRepository drivers, AuditRecorder audit,
                                DriverAdvanceRepository advances, RouteCollectionQuery routeCollections,
                                VehicleExpenseQuery vehicleExpenses,
                                DriverSalaryBankSubmissionRepository submissions) {
         this.batches = batches;
         this.items = items;
         this.drivers = drivers;
-        this.paymentOps = paymentOps;
         this.audit = audit;
         this.advances = advances;
         this.routeCollections = routeCollections;
@@ -223,18 +219,8 @@ public class DriverSalaryService {
         List<DriverSalaryItem> lines = items(batchId);
         java.math.BigDecimal sumNet = lines.stream().map(DriverSalaryItem::getNetSalary)
                 .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
-        Map<Long, Driver> byId = drivers.findAll().stream()
-                .collect(Collectors.toMap(Driver::getId, Function.identity()));
-        long missingBank = lines.stream().filter(i -> {
-            Driver d = byId.get(i.getDriverId());
-            return d == null || !d.isBankComplete();
-        }).count();
         long paidAlready = lines.stream()
                 .filter(i -> i.getPaymentStatus() == DriverSalaryItem.PaymentStatus.PAID).count();
-        var balance = paymentOps.latest(BankBalanceCheck.SubjectType.SALARY_BATCH, batchId);
-        boolean balanceVerified = balance.isPresent();
-        boolean balanceSufficient = paymentOps.balanceCovered(
-                BankBalanceCheck.SubjectType.SALARY_BATCH, batchId, b.getTotalNet());
 
         return PreValidation.builder()
                 .blocking("recipients", "All salary lines present",
@@ -243,12 +229,6 @@ public class DriverSalaryService {
                 .blocking("totals_match", "Batch total matches line totals",
                         MoneyMath.money(sumNet).compareTo(MoneyMath.money(b.getTotalNet())) == 0,
                         "Sum of lines " + MoneyMath.money(sumNet) + " != batch " + b.getTotalNet(), null)
-                .blocking("bank_balance_verified", "Bank balance verified", balanceVerified,
-                        "Record the owner's available bank balance", "/payments/drivers")
-                .blocking("bank_balance_sufficient", "Sufficient bank balance", balanceSufficient,
-                        "Latest balance check does not cover " + MoneyMath.money(b.getTotalNet()), "/payments/drivers")
-                .info("bank_details", "Bank details complete for every driver", missingBank == 0,
-                        missingBank == 0 ? "all set" : missingBank + " driver(s) incomplete — pay those by cash")
                 .info("not_paid", "No line already paid", paidAlready == 0,
                         paidAlready == 0 ? "none" : paidAlready + " line(s) already PAID")
                 .build();
@@ -267,10 +247,6 @@ public class DriverSalaryService {
         }
         if (items(batchId).isEmpty()) {
             throw new BusinessRuleException("Nothing to approve — calculate the batch first");
-        }
-        if (!paymentOps.balanceCovered(BankBalanceCheck.SubjectType.SALARY_BATCH, batchId, b.getTotalNet())) {
-            throw new BusinessRuleException("Owner bank balance is not verified as sufficient for "
-                    + MoneyMath.money(b.getTotalNet()) + " — verify the bank balance before approval");
         }
         if (preValidate(batchId).result() != PreValidation.Result.READY_FOR_APPROVAL) {
             throw new BusinessRuleException("Pre-validation is BLOCKED — resolve the failing checks before approval");
@@ -324,14 +300,6 @@ public class DriverSalaryService {
             throw new BusinessRuleException("Salary line is " + it.getPaymentStatus() + " — cannot pay now");
         }
         PaymentMethod m = method == null ? PaymentMethod.BANK_TRANSFER : method;
-        if (m == PaymentMethod.BANK_TRANSFER) {
-            Driver driver = drivers.findById(it.getDriverId())
-                    .orElseThrow(() -> NotFoundException.of("Driver", it.getDriverId()));
-            if (!driver.isBankComplete()) {
-                throw new BusinessRuleException(
-                        "Bank details are incomplete. Update the driver's bank details before processing salary.");
-            }
-        }
         String ref = reference == null ? "" : reference.trim();
         if (ref.isEmpty()) {
             if (m == PaymentMethod.CASH) {

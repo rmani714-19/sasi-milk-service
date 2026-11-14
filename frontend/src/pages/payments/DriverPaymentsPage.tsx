@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -33,16 +33,13 @@ import { batchStatusLabel } from '../../lib/paymentLabels';
 import { downloadFile, openPdf, useRegions } from '../../api/common';
 import { DriverAdvancesDialog, DriverRouteDialog, VehicleExpensesTab } from './DriverExtras';
 import * as V from '../../lib/validate';
-import { useAuth } from '../../lib/auth';
 import { PageHeader } from '../../components/PageHeader';
 import { FormSection } from '../../components/FormSection';
 import { StatusChip } from '../../components/StatusChip';
-import { BankBalanceCard, OwnerApprovalDialog, PreValidationCard } from '../../components/PaymentGates';
+import { OwnerApprovalDialog, PreValidationCard } from '../../components/PaymentGates';
 import { ConfirmDialog, EmptyState, QueryBoundary, SectionTitle, TableSkeleton, useToast } from '../../components/ui';
 import type {
-  BankBalanceCheck,
   Driver,
-  DriverBankDetails,
   PreValidationReport,
   SalaryBatchDetail,
   SalaryBatchSummary,
@@ -50,22 +47,22 @@ import type {
   VehicleStatus,
 } from '../../api/types';
 
-const LIFECYCLE = ['Draft', 'Calculated', 'Reviewed', 'Bank balance', 'Pre-validation', 'Approved', 'Submitted to bank', 'Paid'] as const;
-function stepIndex(s: string, balanceOk = false, preValReady = false) {
+const LIFECYCLE = ['Draft', 'Calculated', 'Reviewed', 'Pre-validation', 'Approved', 'Submitted to bank', 'Paid'] as const;
+function stepIndex(s: string, preValReady = false) {
   switch (s) {
     case 'DRAFT':
       return 0;
     case 'CALCULATED':
       return 1;
     case 'REVIEWED':
-      return 2 + (balanceOk ? 1 : 0) + (balanceOk && preValReady ? 1 : 0);
+      return 2 + (preValReady ? 1 : 0);
     case 'APPROVED':
-      return 6;
+      return 5;
     case 'PAYMENT_INITIATED':
     case 'PARTIALLY_PAID':
-      return 7;
+      return 6;
     case 'PAID':
-      return 8;
+      return 7;
     default:
       return 0;
   }
@@ -100,7 +97,6 @@ function SalaryRuns() {
   const [editItem, setEditItem] = useState<SalaryItem | null>(null);
   const [payItem, setPayItem] = useState<SalaryItem | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const [balanceCheck, setBalanceCheck] = useState<BankBalanceCheck | null>(null);
   const [preVal, setPreVal] = useState<PreValidationReport | null>(null);
   const [approveOpen, setApproveOpen] = useState(false);
   const [submitOpen, setSubmitOpen] = useState(false);
@@ -120,11 +116,6 @@ function SalaryRuns() {
     queryKey: ['salary-batch', selectedId],
     queryFn: async () => (await api.get<SalaryBatchDetail>(`/salary-batches/${selectedId}`)).data,
     enabled: selectedId != null,
-  });
-  const driverList = useQuery({
-    queryKey: ['drivers'],
-    queryFn: async () => (await api.get<Driver[]>('/drivers')).data,
-    staleTime: 60_000,
   });
 
   const invalidate = () => {
@@ -262,7 +253,6 @@ function SalaryRuns() {
       ) : (
         <QueryBoundary query={detail} skeleton={<TableSkeleton cols={8} />}>
           {(b) => {
-            const balanceOk = !!balanceCheck?.sufficient && Number(balanceCheck.requiredAmount) === Number(b.totalNet);
             const preValReady = preVal?.result === 'READY_FOR_APPROVAL';
             const showGates = ['REVIEWED', 'APPROVED', 'PAYMENT_INITIATED', 'PARTIALLY_PAID', 'PAID', 'FAILED'].includes(b.status);
             return (
@@ -278,7 +268,7 @@ function SalaryRuns() {
                     </Typography>
                     <StatusChip status={b.status} label={batchStatusLabel(b.status)} />
                   </Stack>
-                  <Stepper activeStep={stepIndex(b.status, balanceOk, preValReady)} alternativeLabel sx={{ mt: 2 }}>
+                  <Stepper activeStep={stepIndex(b.status, preValReady)} alternativeLabel sx={{ mt: 2 }}>
                     {LIFECYCLE.map((s) => (
                       <Step key={s}>
                         <StepLabel error={b.status === 'CANCELLED' || b.status === 'FAILED'}>{s}</StepLabel>
@@ -305,7 +295,7 @@ function SalaryRuns() {
                       <Button
                         variant="contained"
                         color="success"
-                        disabled={lifecycle.isPending || !(balanceOk && preValReady)}
+                        disabled={lifecycle.isPending || !preValReady}
                         onClick={() => setApproveOpen(true)}
                       >
                         Approve
@@ -352,13 +342,7 @@ function SalaryRuns() {
 
               {showGates && (
                 <>
-                  <SectionTitle>Bank balance &amp; pre-validation</SectionTitle>
-                  <BankBalanceCard
-                    base={`/salary-batches/${b.id}`}
-                    requiredAmount={b.totalNet}
-                    canVerify
-                    onChange={setBalanceCheck}
-                  />
+                  <SectionTitle>Pre-validation</SectionTitle>
                   <PreValidationCard base={`/salary-batches/${b.id}`} onResult={setPreVal} />
                 </>
               )}
@@ -478,8 +462,6 @@ function SalaryRuns() {
             ['Salary batch', detail.data.batchNumber],
             ['Drivers', String(detail.data.totalDrivers)],
             ['Net salary', money(detail.data.totalNet)],
-            ['Bank balance', balanceCheck ? money(balanceCheck.availableBalance) : '—'],
-            ['Remaining after', balanceCheck ? money(balanceCheck.remainingAfter) : '—'],
             ['Validation', preVal?.result.replace(/_/g, ' ') ?? '—'],
           ]}
           onConfirm={() => approveMut.mutate()}
@@ -510,7 +492,6 @@ function SalaryRuns() {
       <EditItemDialog item={editItem} busy={saveItem.isPending} onClose={() => setEditItem(null)} onSave={(body) => editItem && saveItem.mutate({ id: editItem.id, body })} />
       <PayDialog
         item={payItem}
-        driver={payItem ? driverList.data?.find((x) => x.id === payItem.driverId) : undefined}
         busy={doPay.isPending}
         onClose={() => setPayItem(null)}
         onPay={(body) => payItem && doPay.mutate({ id: payItem.id, body })}
@@ -644,13 +625,11 @@ function EditItemDialog({
 
 function PayDialog({
   item,
-  driver,
   busy,
   onClose,
   onPay,
 }: {
   item: SalaryItem | null;
-  driver?: Driver;
   busy: boolean;
   onClose: () => void;
   onPay: (body: Record<string, unknown>) => void;
@@ -666,7 +645,6 @@ function PayDialog({
     }
   }, [item]);
   const needsRef = method !== 'CASH';
-  const bankBlocked = method === 'BANK_TRANSFER' && driver != null && !driver.bankComplete;
   return (
     <Dialog open={!!item} onClose={onClose} fullWidth maxWidth="xs">
       <DialogTitle>Record salary payment</DialogTitle>
@@ -676,20 +654,10 @@ function PayDialog({
             Net salary <b>{item ? money(item.netSalary) : ''}</b>
           </Typography>
           <TextField select label="Method" value={method} onChange={(e) => setMethod(e.target.value)}>
-            <MenuItem value="BANK_TRANSFER">Bank transfer</MenuItem>
+            <MenuItem value="BANK_TRANSFER">Paid through bank</MenuItem>
             <MenuItem value="CASH">Cash</MenuItem>
             <MenuItem value="OTHER">Other</MenuItem>
           </TextField>
-          {bankBlocked && (
-            <Alert severity="warning">
-              Bank details are incomplete. Update the driver's bank details before processing salary, or pay by cash.
-            </Alert>
-          )}
-          {method === 'BANK_TRANSFER' && driver?.bankComplete && (
-            <Typography variant="caption" color="text.secondary">
-              To {driver.bankName} · {driver.accountNumberMasked} · {driver.ifscCode}
-            </Typography>
-          )}
           <TextField
             label={needsRef ? 'Reference / UTR' : 'Reference (optional)'}
             value={reference}
@@ -702,7 +670,7 @@ function PayDialog({
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"
-          disabled={busy || bankBlocked || (needsRef && !reference.trim())}
+          disabled={busy || (needsRef && !reference.trim())}
           onClick={() => onPay({ method, reference: reference.trim() || undefined, note: note.trim() || undefined })}
         >
           {busy ? 'Saving…' : 'Mark paid'}
@@ -717,11 +685,8 @@ function PayDialog({
 function DriversTab() {
   const toast = useToast();
   const qc = useQueryClient();
-  const { can } = useAuth();
-  const canViewBank = can('PROCESS_PAYMENT') || can('ALL');
   const [dialog, setDialog] = useState<{ mode: 'add' } | { mode: 'edit'; row: Driver } | null>(null);
   const [deactivate, setDeactivate] = useState<Driver | null>(null);
-  const [bankFor, setBankFor] = useState<Driver | null>(null);
   const [routeFor, setRouteFor] = useState<Driver | null>(null);
   const [advancesFor, setAdvancesFor] = useState<Driver | null>(null);
   const regions = useRegions();
@@ -786,8 +751,6 @@ function DriversTab() {
                     <TableCell>Vehicle</TableCell>
                     <TableCell>Route</TableCell>
                     <TableCell>Salary</TableCell>
-                    <TableCell>Bank</TableCell>
-                    <TableCell>Account</TableCell>
                     <TableCell>Status</TableCell>
                     <TableCell align="right">Actions</TableCell>
                   </TableRow>
@@ -817,23 +780,10 @@ function DriversTab() {
                         <Chip size="small" variant="outlined" label={row.salaryType} sx={{ ml: 1 }} />
                       </TableCell>
                       <TableCell>
-                        {row.bankName ?? (
-                          <Chip size="small" color="warning" variant="outlined" label="Not set" />
-                        )}
-                      </TableCell>
-                      <TableCell sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                        {row.accountNumberMasked ?? '—'}
-                      </TableCell>
-                      <TableCell>
                         <StatusChip status={row.status} />
                       </TableCell>
                       <TableCell align="right">
                         <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                          {canViewBank && row.bankComplete && (
-                            <Button size="small" onClick={() => setBankFor(row)}>
-                              View
-                            </Button>
-                          )}
                           <Button size="small" onClick={() => setRouteFor(row)}>
                             Route
                           </Button>
@@ -867,7 +817,6 @@ function DriversTab() {
         onClose={() => setDialog(null)}
         onSave={(id, body) => save.mutate({ id, body })}
       />
-      <BankViewDialog driver={bankFor} onClose={() => setBankFor(null)} />
       <DriverRouteDialog driver={routeFor} onClose={() => setRouteFor(null)} />
       <DriverAdvancesDialog driver={advancesFor} onClose={() => setAdvancesFor(null)} />
       <ConfirmDialog
@@ -893,11 +842,6 @@ const DRIVER_BLANK = {
   monthlySalary: '',
   perDayRate: '',
   status: 'ACTIVE',
-  accountHolderName: '',
-  accountNumber: '',
-  ifscCode: '',
-  bankName: '',
-  branchName: '',
 };
 
 function DriverDialog({
@@ -928,11 +872,6 @@ function DriverDialog({
         monthlySalary: editing.monthlySalary != null ? String(editing.monthlySalary) : '',
         perDayRate: editing.perDayRate != null ? String(editing.perDayRate) : '',
         status: editing.status,
-        accountHolderName: editing.accountHolderName ?? '',
-        accountNumber: '',
-        ifscCode: editing.ifscCode ?? '',
-        bankName: editing.bankName ?? '',
-        branchName: editing.branchName ?? '',
       });
     } else {
       setF(DRIVER_BLANK);
@@ -943,16 +882,11 @@ function DriverDialog({
     (e: { target: { value: string } }) =>
       setF((s) => ({ ...s, [k]: transform ? transform(e.target.value) : e.target.value }));
 
-  const keepAccount = !!editing?.accountNumberMasked; // edit: blank account number = keep existing
   const errors: Record<string, string> = {
     name: V.required('Driver name')(f.name),
     mobile: V.mobile(f.mobile, false),
     monthlySalary: f.salaryType !== 'PER_DAY' && !(Number(f.monthlySalary) >= 0) ? 'Enter a monthly salary' : '',
     perDayRate: f.salaryType === 'PER_DAY' && !(Number(f.perDayRate) > 0) ? 'Enter a per-day rate' : '',
-    accountHolderName: V.required('Account holder name')(f.accountHolderName),
-    accountNumber: V.accountNumber(f.accountNumber, keepAccount),
-    ifscCode: V.ifsc(f.ifscCode),
-    bankName: V.required('Bank name')(f.bankName),
   };
   const showErr = (k: string) => (tried ? errors[k] ?? '' : '');
   const valid = V.allValid(errors);
@@ -969,11 +903,6 @@ function DriverDialog({
       monthlySalary: f.salaryType === 'PER_DAY' ? 0 : Number(f.monthlySalary || 0),
       perDayRate: f.salaryType === 'PER_DAY' ? Number(f.perDayRate || 0) : undefined,
       status: editing ? f.status : undefined,
-      accountHolderName: f.accountHolderName.trim(),
-      accountNumber: f.accountNumber.trim() || undefined,
-      ifscCode: f.ifscCode.trim().toUpperCase(),
-      bankName: f.bankName.trim(),
-      branchName: f.branchName.trim() || undefined,
     });
   };
 
@@ -1062,63 +991,6 @@ function DriverDialog({
             </Grid>
           </FormSection>
 
-          <FormSection title="Bank Details" hint="Used to pay monthly salary by bank transfer.">
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12 }}>
-                <TextField
-                  fullWidth
-                  label="Account Holder Name"
-                  value={f.accountHolderName}
-                  onChange={set('accountHolderName')}
-                  error={!!showErr('accountHolderName')}
-                  helperText={showErr('accountHolderName')}
-                  required
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  fullWidth
-                  label="Account Number"
-                  value={f.accountNumber}
-                  onChange={set('accountNumber', (v) => V.onlyDigits(v).slice(0, 18))}
-                  error={!!showErr('accountNumber')}
-                  helperText={
-                    showErr('accountNumber') ||
-                    (keepAccount ? `Current: ${editing?.accountNumberMasked} — leave blank to keep` : 'Digits only, 9–18 long')
-                  }
-                  inputProps={{ inputMode: 'numeric', maxLength: 18 }}
-                  required={!keepAccount}
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  fullWidth
-                  label="IFSC Code"
-                  value={f.ifscCode}
-                  onChange={set('ifscCode', (v) => V.upper(v).replace(/[^A-Z0-9]/g, '').slice(0, 11))}
-                  error={!!showErr('ifscCode')}
-                  helperText={showErr('ifscCode')}
-                  inputProps={{ maxLength: 11, style: { textTransform: 'uppercase' } }}
-                  required
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  fullWidth
-                  label="Bank Name"
-                  value={f.bankName}
-                  onChange={set('bankName')}
-                  error={!!showErr('bankName')}
-                  helperText={showErr('bankName')}
-                  required
-                />
-              </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField fullWidth label="Branch" value={f.branchName} onChange={set('branchName')} />
-              </Grid>
-            </Grid>
-          </FormSection>
-
           {tried && !valid && (
             <Typography variant="caption" color="error">
               Please fix the highlighted fields.
@@ -1133,53 +1005,5 @@ function DriverDialog({
         </Button>
       </DialogActions>
     </Dialog>
-  );
-}
-
-function BankViewDialog({ driver, onClose }: { driver: Driver | null; onClose: () => void }) {
-  const [reveal, setReveal] = useState(false);
-  useEffect(() => setReveal(false), [driver]);
-  const full = useQuery({
-    queryKey: ['driver-bank', driver?.id],
-    queryFn: async () => (await api.get<DriverBankDetails>(`/drivers/${driver!.id}/bank-details`)).data,
-    enabled: !!driver && reveal,
-  });
-  return (
-    <Dialog open={!!driver} onClose={onClose} fullWidth maxWidth="xs">
-      <DialogTitle>Bank details — {driver?.name}</DialogTitle>
-      <DialogContent dividers>
-        <Stack spacing={1.25}>
-          <Line label="Account holder" value={driver?.accountHolderName ?? '—'} />
-          <Line
-            label="Account number"
-            value={reveal ? full.data?.accountNumber ?? 'Loading…' : driver?.accountNumberMasked ?? '—'}
-          />
-          <Line label="IFSC" value={driver?.ifscCode ?? '—'} />
-          <Line label="Bank" value={driver?.bankName ?? '—'} />
-          <Line label="Branch" value={driver?.branchName ?? '—'} />
-          {driver?.bankUpdatedAt && (
-            <Line label="Last updated" value={new Date(driver.bankUpdatedAt).toLocaleString()} />
-          )}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={() => setReveal((r) => !r)}>{reveal ? 'Hide full number' : 'Show full number'}</Button>
-        <Box sx={{ flex: 1 }} />
-        <Button onClick={onClose}>Close</Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-
-function Line({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <Stack direction="row" justifyContent="space-between" spacing={2}>
-      <Typography variant="body2" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography variant="body2" sx={{ fontWeight: 600, textAlign: 'right' }}>
-        {value}
-      </Typography>
-    </Stack>
   );
 }

@@ -4,8 +4,6 @@ import com.sasimilkservice.center.spi.CenterProfileDirectory;
 import com.sasimilkservice.collection.spi.CollectionSettlementGateway;
 import com.sasimilkservice.common.error.BusinessRuleException;
 import com.sasimilkservice.common.error.NotFoundException;
-import com.sasimilkservice.producer.spi.BankAccountResolver;
-import com.sasimilkservice.producer.spi.BankAccountResolver.MaskedBankAccount;
 import com.sasimilkservice.producer.spi.ProducerDirectory;
 import com.sasimilkservice.producer.spi.ProducerDirectory.ProducerView;
 import com.sasimilkservice.region.spi.RegionDirectory;
@@ -36,20 +34,18 @@ public class SettlementBillService {
     private final CollectionSettlementGateway collections;
     private final ProducerDirectory producers;
     private final RegionDirectory regions;
-    private final BankAccountResolver bankAccounts;
     private final CenterProfileDirectory center;
     private final BillPdfRenderer renderer;
 
     public SettlementBillService(SettlementService settlements, SettlementAdjustmentRepository adjustments,
                                  CollectionSettlementGateway collections, ProducerDirectory producers,
-                                 RegionDirectory regions, BankAccountResolver bankAccounts,
+                                 RegionDirectory regions,
                                  CenterProfileDirectory center, BillPdfRenderer renderer) {
         this.settlements = settlements;
         this.adjustments = adjustments;
         this.collections = collections;
         this.producers = producers;
         this.regions = regions;
-        this.bankAccounts = bankAccounts;
         this.center = center;
         this.renderer = renderer;
     }
@@ -92,8 +88,6 @@ public class SettlementBillService {
         ProducerView producer = producers.findById(item.getProducerId()).orElse(null);
         String region = item.getRegionId() == null ? null
                 : regions.findById(item.getRegionId()).map(RegionDirectory.RegionView::name).orElse(null);
-        MaskedBankAccount bank = item.getBankAccountId() == null ? null
-                : bankAccounts.maskedDetails(item.getBankAccountId()).orElse(null);
 
         List<BillData.Line> lines = collections.collectionsForSettlementItem(item.getId()).stream()
                 .map(r -> new BillData.Line(r.collectionDate(), r.shift(), r.litres(), r.fatPercentage(),
@@ -119,10 +113,6 @@ public class SettlementBillService {
                 producer == null ? String.valueOf(item.getProducerId()) : producer.producerNumber(),
                 producer == null ? "Producer #" + item.getProducerId() : producer.name(),
                 region,
-                bank == null ? null : bank.accountHolderName(),
-                bank == null ? null : bank.accountNumberMasked(),
-                bank == null ? null : bank.ifsc(),
-                bank == null ? null : bank.bankName(),
                 lines, item.getTotalLitres(), item.getMilkAmount(), item.getIncentiveAmount(),
                 item.getFeedDeduction(), item.getVeterinaryDeduction(), item.getOtherDeduction(),
                 item.getAdvanceRecovery(), item.getAdjustmentAmount(), adj,

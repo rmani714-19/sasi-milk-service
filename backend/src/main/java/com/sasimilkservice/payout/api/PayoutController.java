@@ -40,6 +40,14 @@ public class PayoutController {
         return rows.stream().map(PayoutResponse::from).toList();
     }
 
+    /** Confirm many payments at once: a region, the producers with no region (regionId 0), or everything. */
+    @PostMapping("/settlements/{settlementId}/payouts/confirm")
+    @PreAuthorize("hasAnyAuthority('APPROVE_SETTLEMENT','CONFIRM_PAYMENT')")
+    public List<PayoutResponse> confirmMany(@PathVariable long settlementId, @Valid @RequestBody ConfirmManyRequest r) {
+        return service.confirmMany(settlementId, r.regionId(), r.bankReference(), r.paidOn())
+                .stream().map(PayoutResponse::from).toList();
+    }
+
     @GetMapping("/payouts")
     @PreAuthorize("hasAnyAuthority('VIEW_PAYMENTS','APPROVE_SETTLEMENT')")
     public List<PayoutResponse> list(@RequestParam(required = false) Long settlementId) {
@@ -69,6 +77,9 @@ public class PayoutController {
     @PreAuthorize("hasAnyAuthority('APPROVE_SETTLEMENT','CONFIRM_PAYMENT')")
     public PayoutResponse markFailed(@PathVariable long id, @Valid @RequestBody MarkFailedRequest r) {
         return PayoutResponse.from(service.markFailed(id, r.reason()));
+    }
+
+    public record ConfirmManyRequest(Long regionId, @NotBlank String bankReference, java.time.LocalDate paidOn) {
     }
 
     public record MarkPaidRequest(@NotBlank String utr, java.time.LocalDate paidOn) {

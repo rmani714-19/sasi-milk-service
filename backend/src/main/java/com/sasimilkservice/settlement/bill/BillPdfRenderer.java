@@ -115,30 +115,16 @@ public class BillPdfRenderer {
         fact(facts, "Bill date", DATE.format(b.generatedOn()));
         doc.add(facts);
 
-        // ---- producer + bank
-        PdfPTable parties = new PdfPTable(new float[]{1f, 1f});
+        // ---- producer
+        PdfPTable parties = new PdfPTable(new float[]{1f});
         parties.setWidthPercentage(100);
         parties.setSpacingBefore(10);
         PdfPCell prod = boxed();
         prod.addElement(new Paragraph("PRODUCER", font(8, Font.BOLD, MUTED)));
         prod.addElement(new Paragraph(b.producerName(), font(11, Font.BOLD, INK)));
-        prod.addElement(new Paragraph("Producer ID: " + b.producerNumber(), font(9, Font.NORMAL, INK)));
-        if (notBlank(b.region())) {
-            prod.addElement(new Paragraph("Region: " + b.region(), font(9, Font.NORMAL, INK)));
-        }
+        prod.addElement(new Paragraph("Producer ID: " + b.producerNumber()
+                + (notBlank(b.region()) ? "   ·   Region: " + b.region() : ""), font(9, Font.NORMAL, INK)));
         parties.addCell(prod);
-        PdfPCell bank = boxed();
-        bank.addElement(new Paragraph("BANK ACCOUNT", font(8, Font.BOLD, MUTED)));
-        if (notBlank(b.accountMasked())) {
-            bank.addElement(new Paragraph(nz(b.accountHolder()), font(11, Font.BOLD, INK)));
-            bank.addElement(new Paragraph("Account: " + b.accountMasked(), font(9, Font.NORMAL, INK)));
-            bank.addElement(new Paragraph(
-                    (notBlank(b.bankName()) ? b.bankName() + " · " : "") + "IFSC " + nz(b.ifsc()),
-                    font(9, Font.NORMAL, INK)));
-        } else {
-            bank.addElement(new Paragraph("No bank account on file", font(9, Font.NORMAL, MUTED)));
-        }
-        parties.addCell(bank);
         doc.add(parties);
 
         // ---- collections

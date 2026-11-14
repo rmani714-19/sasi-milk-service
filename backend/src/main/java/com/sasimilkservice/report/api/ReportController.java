@@ -95,6 +95,44 @@ public class ReportController {
         return reports.paymentDashboard(from, to);
     }
 
+    /** Producer ID with the weekly (or monthly) total amount for a period — for checking before / after payment. */
+    @GetMapping("/producer-totals")
+    @PreAuthorize("hasAnyAuthority('VIEW_PAYMENTS','VERIFY_PAYMENT','VIEW_REPORTS','GENERATE_REPORTS','EXPORT_REPORTS')")
+    public ResponseEntity<?> producerTotals(@RequestParam String frequency, @RequestParam LocalDate from,
+                                            @RequestParam LocalDate to,
+                                            @RequestParam(required = false) Long regionId,
+                                            @RequestParam(defaultValue = "json") String format) {
+        String freq = frequency.toUpperCase();
+        if (!freq.equals("WEEKLY") && !freq.equals("MONTHLY")) {
+            throw new com.sasimilkservice.common.error.BusinessRuleException("frequency must be WEEKLY or MONTHLY");
+        }
+        List<ReportService.ProducerTotal> rows = reports.producerTotals(freq, from, to, regionId);
+        if (isJson(format)) {
+            return ResponseEntity.ok(rows);
+        }
+        String kind = freq.equals("WEEKLY") ? "Weekly" : "Monthly";
+        java.math.BigDecimal litres = java.math.BigDecimal.ZERO, total = litres, net = litres;
+        List<List<Object>> table = new java.util.ArrayList<>();
+        for (ReportService.ProducerTotal r : rows) {
+            litres = litres.add(r.litres());
+            total = total.add(r.totalAmount());
+            if (r.netPayable() != null) {
+                net = net.add(r.netPayable());
+            }
+            table.add(java.util.Arrays.<Object>asList(r.producerNumber(), r.producerName(), r.region(), r.days(),
+                    r.litres(), r.totalAmount(), r.batchNumber() == null ? "" : r.batchNumber(), r.netPayable(),
+                    r.paymentStatus() == null ? "" : friendlyStatus(r.paymentStatus()),
+                    r.paymentReference() == null ? "" : r.paymentReference()));
+        }
+        table.add(java.util.Arrays.<Object>asList("TOTAL", rows.size() + " producers", "", null, litres, total, "", net, "", ""));
+        TabularReport report = TabularReport.of(kind + " Producer Totals", "%s to %s%s".formatted(from, to,
+                        regionId == null ? "" : " · one region"),
+                List.of("Producer ID", "Name", "Region", "Collection Days", "Litres", kind + " Total Amount",
+                        "Batch", "Net Payable", "Payment Status", "Bank Ref (UTR)"),
+                table);
+        return export(report, format, kind.toLowerCase() + "-producer-totals-" + from + "-to-" + to);
+    }
+
     /** pending | bank-submissions | confirmations | incentives-deductions | period-summary */
     @GetMapping("/payments/{kind}")
     @PreAuthorize("hasAnyAuthority('VIEW_PAYMENTS','VIEW_REPORTS','GENERATE_REPORTS','VIEW_BASIC_REPORTS','EXPORT_REPORTS')")

@@ -377,6 +377,49 @@ public class ReportService {
                 rs.getInt("total_producers"), rs.getBigDecimal("total_net_payable"));
     }
 
+    /**
+     * Each producer on the given payment frequency with what they delivered in the period and the total amount
+     * (milk + incentive) — the weekly or monthly total to verify before and after a payment run. When a payment
+     * batch already covers the period, its net payable (after deductions) and payment status are shown too.
+     *
+     * @param regionId only producers of this region ({@code 0} = producers with no region); null = all
+     */
+    public List<ProducerTotal> producerTotals(String frequency, LocalDate from, LocalDate to, Long regionId) {
+        return jdbc.query("""
+                select pr.id, pr.producer_number, pr.producer_name, pr.region_id, coalesce(r.name, '') region_name,
+                       count(distinct c.collection_date) days, coalesce(sum(c.milk_quantity_litres), 0) litres,
+                       coalesce(sum(c.base_amount + c.incentive_amount), 0) total_amount,
+                       b.settlement_number, b.net_payable, b.payment_status, b.payment_reference, b.bill_number
+                from producers pr
+                join milk_collections c on c.producer_id = pr.id and c.status = 'CONFIRMED'
+                                       and c.collection_date between ? and ?
+                left join regions r on r.id = pr.region_id
+                left join lateral (
+                    select s.settlement_number, si.net_payable, si.payment_status, si.payment_reference, si.bill_number
+                    from settlement_items si join settlements s on s.id = si.settlement_id
+                    where si.producer_id = pr.id and s.status <> 'CANCELLED' and s.payment_frequency = ?
+                      and s.period_start <= ? and s.period_end >= ?
+                    order by s.id desc limit 1) b on true
+                where pr.payment_frequency = ?
+                  and (?::bigint is null or (?::bigint = 0 and pr.region_id is null) or pr.region_id = ?::bigint)
+                group by pr.id, pr.producer_number, pr.producer_name, pr.region_id, r.name,
+                         b.settlement_number, b.net_payable, b.payment_status, b.payment_reference, b.bill_number
+                order by pr.producer_number
+                """,
+                (rs, i) -> new ProducerTotal(rs.getLong("id"), rs.getString("producer_number"),
+                        rs.getString("producer_name"), (Long) rs.getObject("region_id"), rs.getString("region_name"),
+                        rs.getInt("days"), rs.getBigDecimal("litres"), rs.getBigDecimal("total_amount"),
+                        rs.getString("settlement_number"), rs.getBigDecimal("net_payable"),
+                        rs.getString("payment_status"), rs.getString("payment_reference"), rs.getString("bill_number")),
+                from, to, frequency, to, from, frequency, regionId, regionId, regionId);
+    }
+
+    public record ProducerTotal(long producerId, String producerNumber, String producerName, Long regionId,
+                                String region, int days, BigDecimal litres, BigDecimal totalAmount,
+                                String batchNumber, BigDecimal netPayable, String paymentStatus,
+                                String paymentReference, String billNumber) {
+    }
+
     /** Business name, address and phone for report letterheads. */
     public CenterLine centerLine() {
         List<CenterLine> r = jdbc.query("select center_name, address, mobile_number from center order by id limit 1",

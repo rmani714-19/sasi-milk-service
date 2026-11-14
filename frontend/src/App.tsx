@@ -17,6 +17,7 @@ import { SettlementsPage } from './pages/SettlementsPage';
 import { SettlementDetailPage } from './pages/SettlementDetailPage';
 import { WeeklyFarmerPaymentPage, MonthlyFarmerPaymentPage } from './pages/payments/FarmerPaymentsPage';
 import { PaymentDashboardPage } from './pages/payments/PaymentDashboardPage';
+import { MonthlyVerificationPage, WeeklyVerificationPage } from './pages/payments/ProducerVerificationPage';
 import { DriverPaymentsPage } from './pages/payments/DriverPaymentsPage';
 import { PaymentHistoryPage } from './pages/payments/PaymentHistoryPage';
 import { PaymentReportsPage } from './pages/payments/PaymentReportsPage';
@@ -51,6 +52,8 @@ export function App() {
           <Route path="settlements" element={<SettlementsPage />} />
           <Route path="settlements/:id" element={<SettlementDetailPage />} />
           <Route path="payments/dashboard" element={<PaymentDashboardPage />} />
+          <Route path="payments/weekly/verify" element={<WeeklyVerificationPage />} />
+          <Route path="payments/monthly/verify" element={<MonthlyVerificationPage />} />
           <Route path="payments/weekly" element={<WeeklyFarmerPaymentPage />} />
           <Route path="payments/monthly" element={<MonthlyFarmerPaymentPage />} />
           <Route path="payments/farmers" element={<Navigate to="/payments/weekly" replace />} />

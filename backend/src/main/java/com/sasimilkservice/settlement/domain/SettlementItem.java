@@ -36,9 +36,6 @@ public class SettlementItem extends BaseEntity {
     @Column(name = "region_id")
     private Long regionId;
 
-    @Column(name = "bank_account_id")
-    private Long bankAccountId;
-
     @Column(name = "morning_litres", nullable = false)
     private BigDecimal morningLitres = BigDecimal.ZERO;
     @Column(name = "evening_litres", nullable = false)

@@ -17,10 +17,7 @@ import com.sasimilkservice.common.security.CurrentUser;
 import com.sasimilkservice.deduction.spi.DeductionCalculator.DeductionResult;
 import com.sasimilkservice.deduction.spi.DeductionLedger;
 import com.sasimilkservice.deduction.spi.DeductionLedger.PendingDeductions;
-import com.sasimilkservice.paymentops.domain.BankBalanceCheck.SubjectType;
-import com.sasimilkservice.paymentops.service.PaymentOpsService;
 import com.sasimilkservice.paymentops.service.PreValidation;
-import com.sasimilkservice.producer.spi.BankAccountResolver;
 import com.sasimilkservice.producer.spi.ProducerDirectory;
 import com.sasimilkservice.settlement.domain.Settlement;
 import com.sasimilkservice.settlement.domain.SettlementAdjustment;
@@ -74,10 +71,8 @@ public class SettlementService implements SettlementPayoutGateway {
     private final AdvanceLedger advances;
     private final AdvanceRecoveryCalculator advanceRecoveryCalculator;
     private final CenterService centerService;
-    private final BankAccountResolver bankAccounts;
     private final ProducerDirectory producerDirectory;
     private final com.sasimilkservice.region.spi.RegionDirectory regionDirectory;
-    private final PaymentOpsService paymentOps;
     private final AuditRecorder audit;
 
     public SettlementService(SettlementRepository settlements,
@@ -92,10 +87,8 @@ public class SettlementService implements SettlementPayoutGateway {
                              AdvanceLedger advances,
                              AdvanceRecoveryCalculator advanceRecoveryCalculator,
                              CenterService centerService,
-                             BankAccountResolver bankAccounts,
                              ProducerDirectory producerDirectory,
                              com.sasimilkservice.region.spi.RegionDirectory regionDirectory,
-                             PaymentOpsService paymentOps,
                              AuditRecorder audit) {
         this.settlements = settlements;
         this.items = items;
@@ -109,10 +102,8 @@ public class SettlementService implements SettlementPayoutGateway {
         this.advances = advances;
         this.advanceRecoveryCalculator = advanceRecoveryCalculator;
         this.centerService = centerService;
-        this.bankAccounts = bankAccounts;
         this.producerDirectory = producerDirectory;
         this.regionDirectory = regionDirectory;
-        this.paymentOps = paymentOps;
         this.audit = audit;
     }
 
@@ -402,15 +393,9 @@ public class SettlementService implements SettlementPayoutGateway {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal sumLitres = lines.stream().map(SettlementItem::getTotalLitres)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        long missingBank = lines.stream().filter(i -> i.getBankAccountId() == null).count();
         long conflicted = lines.stream().filter(i ->
                 i.getPaymentStatus() == SettlementItem.PaymentStatus.ON_HOLD
                         || i.getPaymentStatus() == SettlementItem.PaymentStatus.FAILED).count();
-        var balance = paymentOps.latest(SubjectType.SETTLEMENT, id);
-        boolean balanceVerified = balance.isPresent();
-        boolean balanceSufficient = balance.filter(b -> b.isSufficient())
-                .filter(b -> b.getRequiredAmount().compareTo(MoneyMath.money(s.getTotalNetPayable())) == 0)
-                .isPresent();
 
         return PreValidation.builder()
                 .blocking("recipients", "All eligible recipients identified",
@@ -423,16 +408,9 @@ public class SettlementService implements SettlementPayoutGateway {
                 .blocking("totals_match", "Batch total matches recipient totals",
                         MoneyMath.money(sumNet).compareTo(MoneyMath.money(s.getTotalNetPayable())) == 0,
                         "Sum of lines " + MoneyMath.money(sumNet) + " != batch " + s.getTotalNetPayable(), null)
-                .blocking("bank_balance_verified", "Bank balance verified", balanceVerified,
-                        "Record the owner's available bank balance", "/settlements/" + id)
-                .blocking("bank_balance_sufficient", "Sufficient bank balance", balanceSufficient,
-                        "Latest balance check does not cover " + MoneyMath.money(s.getTotalNetPayable()),
-                        "/settlements/" + id)
                 .info("litres", "Total litres verified",
                         MoneyMath.quantity(sumLitres).compareTo(MoneyMath.quantity(s.getTotalLitres())) == 0,
                         "lines " + MoneyMath.quantity(sumLitres) + " / batch " + s.getTotalLitres())
-                .info("bank_details", "Bank details complete for every recipient", missingBank == 0,
-                        missingBank == 0 ? "all set" : missingBank + " producer(s) have no primary bank account")
                 .info("no_conflict", "No unresolved payment conflict", conflicted == 0,
                         conflicted == 0 ? "none" : conflicted + " line(s) FAILED / ON_HOLD")
                 .info("period", "Payment period valid",
@@ -471,10 +449,6 @@ public class SettlementService implements SettlementPayoutGateway {
                             + "(verified %s, now %s) — re-verify before approving").formatted(
                             item.getProducerId(), item.getVerifiedAmount(), item.getNetPayable()));
                 }
-            }
-            if (!paymentOps.balanceCovered(SubjectType.SETTLEMENT, id, s.getTotalNetPayable())) {
-                throw new BusinessRuleException("Owner bank balance is not verified as sufficient for "
-                        + MoneyMath.money(s.getTotalNetPayable()) + " — verify the bank balance before approval");
             }
             if (preValidate(id).result() != PreValidation.Result.READY_FOR_APPROVAL) {
                 throw new BusinessRuleException("Pre-validation is BLOCKED — resolve the failing checks before approval");
@@ -585,7 +559,7 @@ public class SettlementService implements SettlementPayoutGateway {
                     "Settlement is " + s.getStatus() + "; it must be APPROVED before payout");
         }
         List<PayableItem> payable = items.findBySettlementIdOrderByProducerIdAsc(s.getId()).stream()
-                .map(i -> new PayableItem(i.getId(), i.getProducerId(), i.getBankAccountId(),
+                .map(i -> new PayableItem(i.getId(), i.getProducerId(), i.getRegionId(),
                         i.getNetPayable(),
                         ItemPaymentStatus.valueOf(i.getPaymentStatus().name())))
                 .toList();
@@ -639,6 +613,89 @@ public class SettlementService implements SettlementPayoutGateway {
         } else {
             changeStatus(s, Settlement.Status.PAYOUT_INITIATED, null);
         }
+    }
+
+    // ---- reconciliation ----
+
+    /**
+     * Does the settlement agree with what has been paid? Totals overall and per region, from the stored lines:
+     * expected (batch net payable), the sum of the producer lines, and how much is confirmed paid, still
+     * waiting, or failed. Lines with nothing to pay are ignored.
+     */
+    public Reconciliation reconciliation(long settlementId) {
+        Settlement s = require(settlementId);
+        List<SettlementItem> lines = items.findBySettlementIdOrderByProducerIdAsc(settlementId);
+        java.util.Map<Long, RegionTally> byRegion = new java.util.TreeMap<>(java.util.Comparator.nullsFirst(Long::compareTo));
+        RegionTally all = new RegionTally();
+        for (SettlementItem i : lines) {
+            BigDecimal net = MoneyMath.money(i.getNetPayable());
+            if (net.signum() <= 0) {
+                continue;
+            }
+            RegionTally t = byRegion.computeIfAbsent(i.getRegionId(), k -> new RegionTally());
+            for (RegionTally x : List.of(t, all)) {
+                x.producers++;
+                x.expected = x.expected.add(net);
+                switch (i.getPaymentStatus()) {
+                    case SUCCESS -> {
+                        x.paidCount++;
+                        x.paid = x.paid.add(net);
+                    }
+                    case FAILED -> {
+                        x.failedCount++;
+                        x.failed = x.failed.add(net);
+                    }
+                    case CANCELLED -> x.cancelled = x.cancelled.add(net);
+                    default -> {
+                        x.pendingCount++;
+                        x.pending = x.pending.add(net);
+                    }
+                }
+            }
+        }
+        List<RegionReconciliation> regions = byRegion.entrySet().stream()
+                .map(e -> e.getValue().toRegion(e.getKey())).toList();
+        BigDecimal batchTotal = MoneyMath.money(s.getTotalNetPayable());
+        boolean linesMatchBatch = all.expected.add(all.cancelled).compareTo(batchTotal) == 0
+                || all.expected.compareTo(batchTotal) == 0;
+        boolean complete = all.producers > 0 && all.pendingCount == 0 && all.failedCount == 0
+                && all.paid.compareTo(all.expected) == 0;
+        return new Reconciliation(batchTotal, all.expected, all.paid, all.pending, all.failed,
+                all.producers, all.paidCount, all.pendingCount, all.failedCount,
+                linesMatchBatch, complete, all.expected.subtract(all.paid), regions);
+    }
+
+    private static final class RegionTally {
+        int producers;
+        int paidCount;
+        int pendingCount;
+        int failedCount;
+        BigDecimal expected = BigDecimal.ZERO;
+        BigDecimal paid = BigDecimal.ZERO;
+        BigDecimal pending = BigDecimal.ZERO;
+        BigDecimal failed = BigDecimal.ZERO;
+        BigDecimal cancelled = BigDecimal.ZERO;
+
+        RegionReconciliation toRegion(Long regionId) {
+            String status = producers == 0 ? "NOTHING_TO_PAY"
+                    : paidCount == producers ? "COMPLETED"
+                    : paidCount > 0 ? "PARTIALLY_CONFIRMED"
+                    : failedCount > 0 && pendingCount == 0 ? "FAILED" : "NOT_CONFIRMED";
+            return new RegionReconciliation(regionId, producers, paidCount, pendingCount, failedCount,
+                    expected, paid, pending, failed, status);
+        }
+    }
+
+    public record Reconciliation(BigDecimal batchTotal, BigDecimal linesTotal, BigDecimal paidTotal,
+                                 BigDecimal pendingTotal, BigDecimal failedTotal,
+                                 int producers, int paidCount, int pendingCount, int failedCount,
+                                 boolean linesMatchBatch, boolean complete, BigDecimal difference,
+                                 List<RegionReconciliation> regions) {
+    }
+
+    public record RegionReconciliation(Long regionId, int producers, int paidCount, int pendingCount,
+                                       int failedCount, BigDecimal expected, BigDecimal paid,
+                                       BigDecimal pending, BigDecimal failed, String status) {
     }
 
     // ---- bills, bank submission and history ----
@@ -758,7 +815,6 @@ public class SettlementService implements SettlementPayoutGateway {
         item.setSettlementId(s.getId());
         item.setProducerId(producerId);
         item.setRegionId(regionId);
-        item.setBankAccountId(bankAccounts.primaryActiveAccountId(producerId).orElse(null));
         item.setMorningLitres(line.morningLitres());
         item.setEveningLitres(line.eveningLitres());
         item.setTotalLitres(line.totalLitres());

@@ -1,39 +1,22 @@
 package com.sasimilkservice.producer.api.dto;
 
 import com.sasimilkservice.producer.domain.Producer;
-import com.sasimilkservice.producer.domain.ProducerBankAccount;
-import com.sasimilkservice.producer.service.ProducerService.AddBankAccountCommand;
 import com.sasimilkservice.producer.service.ProducerService.CreateProducerCommand;
 import com.sasimilkservice.producer.service.ProducerService.UpdateProducerCommand;
-import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 
 import java.time.LocalDate;
 
-/** Producer + bank-account API payloads. Full account / Aadhaar numbers are never returned. */
+/** Producer API payloads. Full account / Aadhaar numbers are never returned. */
 public final class ProducerDtos {
 
     private ProducerDtos() {}
 
-    private static final String IFSC = "^[A-Za-z]{4}0[A-Za-z0-9]{6}$";
     private static final String MOBILE = "^[0-9]{10}$";
     private static final String AADHAAR = "^[0-9]{12}$";
     private static final String FREQUENCY = "^(WEEKLY|MONTHLY)$";
-
-    public record BankBlock(
-            @NotBlank String accountHolderName,
-            @NotBlank String accountNumber,
-            @NotBlank String bankName,
-            String bankBranch,
-            @Pattern(regexp = IFSC, message = "invalid IFSC code") @NotBlank String ifscCode) {
-
-        AddBankAccountCommand toCommand() {
-            return new AddBankAccountCommand(accountHolderName, accountNumber, ifscCode, bankName, bankBranch);
-        }
-    }
 
     public record CreateProducerRequest(
             @NotBlank String producerName,
@@ -46,14 +29,12 @@ public final class ProducerDtos {
             Long regionId,
             LocalDate joiningDate,
             String notes,
-            @Pattern(regexp = FREQUENCY, message = "paymentFrequency must be WEEKLY or MONTHLY") String paymentFrequency,
-            @NotNull(message = "bank details are required") @Valid BankBlock bank) {
+            @Pattern(regexp = FREQUENCY, message = "paymentFrequency must be WEEKLY or MONTHLY") String paymentFrequency) {
 
         public CreateProducerCommand toCommand() {
             return new CreateProducerCommand(producerName, mobileNumber, alternateMobile,
                     email, address, upiId, aadhaarNumber, regionId, joiningDate, notes,
-                    paymentFrequency,
-                    bank == null ? null : bank.toCommand());
+                    paymentFrequency);
         }
     }
 
@@ -74,32 +55,6 @@ public final class ProducerDtos {
             return new UpdateProducerCommand(producerName, mobileNumber, alternateMobile, email,
                     address, upiId, aadhaarNumber, regionId, regionChangeReason, notes,
                     paymentFrequency);
-        }
-    }
-
-    public record CreateBankAccountRequest(
-            @NotBlank String accountHolderName,
-            @NotBlank String accountNumber,
-            @Pattern(regexp = IFSC, message = "invalid IFSC code") String ifscCode,
-            String bankName,
-            String bankBranch) {
-
-        public AddBankAccountCommand toCommand() {
-            return new AddBankAccountCommand(accountHolderName, accountNumber, ifscCode, bankName, bankBranch);
-        }
-    }
-
-    /** Edit an existing bank account. {@code accountNumber} blank = keep the current one. */
-    public record UpdateBankAccountRequest(
-            @NotBlank String accountHolderName,
-            String accountNumber,
-            @Pattern(regexp = IFSC, message = "invalid IFSC code") @NotBlank String ifscCode,
-            String bankName,
-            String bankBranch) {
-
-        public com.sasimilkservice.producer.service.ProducerService.UpdateBankAccountCommand toCommand() {
-            return new com.sasimilkservice.producer.service.ProducerService.UpdateBankAccountCommand(
-                    accountHolderName, accountNumber, ifscCode, bankName, bankBranch);
         }
     }
 
@@ -127,23 +82,6 @@ public final class ProducerDtos {
                     p.getAadhaarLast4() == null ? null : "XXXXXXXX" + p.getAadhaarLast4(),
                     p.getRegionId(), p.getJoiningDate(), p.getStatus().name(),
                     p.getPaymentFrequency().name(), p.getQrCode());
-        }
-    }
-
-    public record BankAccountResponse(
-            Long id,
-            String accountHolderName,
-            String accountNumberMasked,
-            String ifscCode,
-            String bankName,
-            String bankBranch,
-            boolean primary,
-            String status) {
-
-        public static BankAccountResponse from(ProducerBankAccount a) {
-            return new BankAccountResponse(a.getId(), a.getAccountHolderName(), a.masked(),
-                    a.getIfscCode(), a.getBankName(), a.getBankBranch(), a.isPrimary(),
-                    a.getStatus().name());
         }
     }
 }

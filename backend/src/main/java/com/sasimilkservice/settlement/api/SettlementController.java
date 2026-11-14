@@ -1,11 +1,7 @@
 package com.sasimilkservice.settlement.api;
 
 import com.sasimilkservice.paymentops.api.PaymentOpsDtos.ApproveRequest;
-import com.sasimilkservice.paymentops.api.PaymentOpsDtos.BankBalanceCheckResponse;
-import com.sasimilkservice.paymentops.api.PaymentOpsDtos.BankBalanceRequest;
 import com.sasimilkservice.paymentops.api.PaymentOpsDtos.PreValidationResponse;
-import com.sasimilkservice.paymentops.domain.BankBalanceCheck.SubjectType;
-import com.sasimilkservice.paymentops.service.PaymentOpsService;
 import com.sasimilkservice.producer.spi.ProducerDirectory;
 import com.sasimilkservice.producer.spi.ProducerDirectory.ProducerView;
 import com.sasimilkservice.settlement.api.dto.SettlementDtos.AddAdjustmentRequest;
@@ -45,14 +41,12 @@ public class SettlementController {
 
     private final SettlementService service;
     private final ProducerDirectory producers;
-    private final PaymentOpsService paymentOps;
     private final SettlementBillService bills;
 
     public SettlementController(SettlementService service, ProducerDirectory producers,
-                               PaymentOpsService paymentOps, SettlementBillService bills) {
+                               SettlementBillService bills) {
         this.service = service;
         this.producers = producers;
-        this.paymentOps = paymentOps;
         this.bills = bills;
     }
 
@@ -162,22 +156,11 @@ public class SettlementController {
         return service.collectionsForItem(id, itemId).stream().map(DailyCollectionRow::from).toList();
     }
 
-    @GetMapping("/{id}/bank-balance")
-    @PreAuthorize("hasAnyAuthority('VERIFY_PAYMENT','APPROVE_SETTLEMENT','PROCESS_PAYMENT','VIEW_PAYMENTS')")
-    public BankBalanceCheckResponse bankBalance(@PathVariable long id) {
-        return paymentOps.latest(SubjectType.SETTLEMENT, id)
-                .map(BankBalanceCheckResponse::from)
-                .orElse(null);
-    }
-
-    @PostMapping("/{id}/bank-balance")
-    @PreAuthorize("hasAnyAuthority('VERIFY_PAYMENT','APPROVE_SETTLEMENT','PROCESS_PAYMENT')")
-    public BankBalanceCheckResponse verifyBankBalance(@PathVariable long id,
-                                                     @Valid @RequestBody BankBalanceRequest r) {
-        Settlement s = service.require(id);
-        return BankBalanceCheckResponse.from(paymentOps.record(SubjectType.SETTLEMENT, id,
-                r.centerBankAccountId(), r.bankAccountLabel(), r.availableBalance(),
-                s.getTotalNetPayable(), r.method(), r.note()));
+    /** Settlement vs payments: overall and region-wise totals of what is paid, waiting and failed. */
+    @GetMapping("/{id}/reconciliation")
+    @PreAuthorize(VIEW_ANY)
+    public SettlementService.Reconciliation reconciliation(@PathVariable long id) {
+        return service.reconciliation(id);
     }
 
     @GetMapping("/{id}/pre-validation")
